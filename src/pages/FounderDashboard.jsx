@@ -3,7 +3,8 @@ import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabaseClient";
 import Navbar from "../components/NavBar"; 
 import Loader from "../components/Loader"; 
-import { Rocket, BarChart3, Plus, CheckCircle2, AlertCircle, TrendingUp, Globe, Tag, Layers, DollarSign, Inbox, Check, X, Clock, User } from "lucide-react";
+import ChatWindow from "../components/ChatWindow"; // Import Chat
+import { Rocket, BarChart3, Plus, CheckCircle2, AlertCircle, TrendingUp, Globe, Tag, Layers, DollarSign, Inbox, Check, X, Clock, User, MessageCircle } from "lucide-react";
 import gsap from "gsap";
 
 export default function FounderDashboard() {
@@ -11,9 +12,12 @@ export default function FounderDashboard() {
   
   // State
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("overview"); // 'overview' or 'requests'
+  const [activeTab, setActiveTab] = useState("overview"); 
   const [startup, setStartup] = useState(null);
   const [requests, setRequests] = useState([]);
+  
+  // Chat State
+  const [activeChatRequest, setActiveChatRequest] = useState(null);
   
   // Refs
   const containerRef = useRef(null);
@@ -42,25 +46,67 @@ export default function FounderDashboard() {
       if (startupData) {
         setStartup(startupData);
         setFormData(startupData);
+        
+        // Initial Fetch of Requests
+        await fetchRequestsManual(startupData.id);
 
-        // 2. Fetch Incoming Pilot Requests (Only if startup exists)
-        // We join with the 'profiles' table to get Buyer details
-        const { data: reqData, error: reqError } = await supabase
-          .from('pilot_requests')
-          .select(`
-            *,
-            buyer:profiles!buyer_id ( full_name, email, startup_name )
-          `)
-          .eq('startup_id', startupData.id)
-          .order('created_at', { ascending: false });
+        // Realtime Subscription
+        const channel = supabase.channel('founder-requests')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'pilot_requests', filter: `startup_id=eq.${startupData.id}` },
+            () => fetchRequestsManual(startupData.id)
+          )
+          .subscribe();
 
-        if (reqError) console.error("Request fetch error:", reqError);
-        setRequests(reqData || []);
+        return () => supabase.removeChannel(channel);
       }
     } catch (error) {
       console.error("Error fetching dashboard:", error);
     } finally {
-      setLoading(false); // Let the Loader component handle the exit
+      setLoading(false); 
+    }
+  };
+
+  // --- ROBUST FETCH FUNCTION (No Joins) ---
+  const fetchRequestsManual = async (startupId) => {
+    try {
+        // A. Get Requests
+        const { data: rawRequests, error: reqError } = await supabase
+          .from('pilot_requests')
+          .select('*')
+          .eq('startup_id', startupId)
+          .order('created_at', { ascending: false });
+
+        if (reqError) throw reqError;
+        if (!rawRequests || rawRequests.length === 0) {
+            setRequests([]);
+            return;
+        }
+
+        // B. Get Buyers manually using IDs from requests
+        const buyerIds = [...new Set(rawRequests.map(r => r.buyer_id))];
+        
+        const { data: profiles, error: profileError } = await supabase
+            .from('profiles')
+            .select('id, full_name, email, startup_name')
+            .in('id', buyerIds);
+
+        if (profileError) throw profileError;
+
+        // C. Merge Data
+        const mergedRequests = rawRequests.map(req => {
+            const buyer = profiles.find(p => p.id === req.buyer_id);
+            return {
+                ...req,
+                buyer: buyer || { full_name: "Unknown Buyer", email: "N/A" } // Fallback
+            };
+        });
+
+        setRequests(mergedRequests);
+
+    } catch (err) {
+        console.error("Manual Fetch Error:", err);
     }
   };
 
@@ -117,6 +163,15 @@ export default function FounderDashboard() {
     <>
     <Navbar />
     
+    {/* CHAT MODAL */}
+    {activeChatRequest && (
+        <ChatWindow 
+            request={activeChatRequest} 
+            currentUser={user} 
+            onClose={() => setActiveChatRequest(null)} 
+        />
+    )}
+    
     <div ref={containerRef} className="min-h-screen w-full pt-28 px-6 md:px-12 pb-20 relative z-10 font-sans">
       
       {/* HEADER & TABS */}
@@ -126,7 +181,6 @@ export default function FounderDashboard() {
             Founder Studio<span className="text-ethaum-green">.</span>
           </h1>
           <div className="flex items-center gap-6 mt-4">
-             {/* Tab 1: Profile */}
              <button 
                onClick={() => setActiveTab("overview")}
                className={`text-xs font-bold uppercase tracking-widest transition-colors pb-1 border-b-2 ${activeTab === 'overview' ? 'text-white border-ethaum-green' : 'text-gray-500 border-transparent hover:text-gray-300'}`}
@@ -134,7 +188,6 @@ export default function FounderDashboard() {
                 Configuration
              </button>
 
-             {/* Tab 2: Incoming Requests (With Notification Dot) */}
              <button 
                onClick={() => setActiveTab("requests")}
                className={`text-xs font-bold uppercase tracking-widest transition-colors pb-1 border-b-2 flex items-center gap-2 ${activeTab === 'requests' ? 'text-white border-ethaum-green' : 'text-gray-500 border-transparent hover:text-gray-300'}`}
@@ -147,7 +200,6 @@ export default function FounderDashboard() {
           </div>
         </div>
         
-        {/* Action Button */}
         <div className="mt-6 md:mt-0">
            <button className="flex items-center gap-2 px-5 py-2 bg-ethaum-green text-black text-xs font-bold uppercase tracking-wider rounded-lg hover:bg-white transition-colors shadow-[0_0_20px_rgba(204,255,0,0.2)]">
              <Plus size={14} /> New Launch
@@ -157,10 +209,10 @@ export default function FounderDashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        {/* --- MAIN CONTENT AREA (8 Cols) --- */}
+        {/* --- MAIN CONTENT AREA --- */}
         <div className="dash-item lg:col-span-8">
           
-          {/* VIEW: OVERVIEW (EDITOR) */}
+          {/* VIEW: OVERVIEW */}
           {activeTab === 'overview' && (
             <div className="bg-[#0A0A0A]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-8 relative overflow-hidden">
                 <div className="flex items-center gap-3 mb-8">
@@ -224,15 +276,23 @@ export default function FounderDashboard() {
                             </div>
                             <div>
                                <h3 className="text-white font-bold">{req.buyer?.full_name || "Enterprise Buyer"}</h3>
-                               <p className="text-xs text-gray-500">{req.buyer?.email}</p>
+                               <p className="text-xs text-gray-500">{req.buyer?.email || "No Email Provided"}</p>
                                <div className="mt-2 flex items-center gap-2 text-[10px] text-gray-400 uppercase tracking-wider">
                                   <Clock size={12} /> {new Date(req.created_at).toLocaleDateString()}
                                </div>
                             </div>
                          </div>
 
-                         {/* Status Badge */}
-                         <div>
+                         {/* Status Badge & Chat */}
+                         <div className="flex items-center gap-3">
+                            <button 
+                                onClick={() => setActiveChatRequest(req)}
+                                className="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-gray-400 hover:text-ethaum-green border border-white/5 transition-all"
+                                title="Open Chat"
+                            >
+                                <MessageCircle size={18} />
+                            </button>
+
                             <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border 
                                 ${req.status === 'pending' ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20' : ''}
                                 ${req.status === 'approved' ? 'bg-green-500/10 text-green-500 border-green-500/20' : ''}
@@ -267,7 +327,7 @@ export default function FounderDashboard() {
 
         </div>
 
-        {/* --- RIGHT COLUMN: ANALYTICS HUD (4 Cols) --- */}
+        {/* --- RIGHT COLUMN: ANALYTICS HUD --- */}
         <div className="lg:col-span-4 flex flex-col gap-6">
            <div className="dash-item relative bg-[#0F0F0F] border border-white/10 rounded-2xl p-6 overflow-hidden group hover:border-ethaum-green/30 transition-colors">
               <div className="absolute top-0 right-0 w-32 h-32 bg-ethaum-green/10 rounded-full blur-3xl opacity-50 group-hover:opacity-100 transition-opacity"></div>

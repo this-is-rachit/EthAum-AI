@@ -3,7 +3,8 @@ import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabaseClient";
 import Navbar from "../components/NavBar";
 import Loader from "../components/Loader";
-import { BarChart3, Search, Filter, Briefcase, Clock, CheckCircle2, XCircle, ArrowUpRight, TrendingUp } from "lucide-react";
+import ChatWindow from "../components/ChatWindow"; // Import Chat
+import { BarChart3, Search, Clock, CheckCircle2, XCircle, TrendingUp, MessageCircle } from "lucide-react";
 import gsap from "gsap";
 import { useNavigate } from "react-router-dom";
 
@@ -11,11 +12,13 @@ export default function BuyerDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("watchlist"); // 'watchlist' or 'pilots'
-  
+  const [activeTab, setActiveTab] = useState("watchlist"); 
   const [watchlist, setWatchlist] = useState([]);
   const [requests, setRequests] = useState([]);
-
+  
+  // Chat State
+  const [activeChatRequest, setActiveChatRequest] = useState(null);
+  
   const containerRef = useRef(null);
 
   useEffect(() => {
@@ -24,20 +27,17 @@ export default function BuyerDashboard() {
 
   const fetchBuyerData = async () => {
     try {
-      // 1. Fetch Watchlist (Upvoted Startups)
-      // Note: We join 'startup_upvotes' with 'startups'
+      // 1. Fetch Watchlist
       const { data: watchData, error: watchError } = await supabase
         .from('startup_upvotes')
-        .select(`
-          startup_id,
-          startups ( * )
-        `)
+        .select(`startup_id, startups ( * )`)
         .eq('user_id', user.id);
 
       if (watchError) throw watchError;
       setWatchlist(watchData.map(item => item.startups));
 
-      // 2. Fetch Pilot Requests
+      // 2. Fetch Pilot Requests (With startup details)
+      // Note: This join works because Pilot -> Startup is a valid FK
       const { data: reqData, error: reqError } = await supabase
         .from('pilot_requests')
         .select(`
@@ -52,7 +52,6 @@ export default function BuyerDashboard() {
     } catch (error) {
       console.error("Error fetching dashboard:", error);
     } finally {
-      // Lazy load simulation for smoothness
       setTimeout(() => setLoading(false), 1200);
     }
   };
@@ -69,13 +68,21 @@ export default function BuyerDashboard() {
     }
   }, [loading, activeTab]);
 
-  // Handle Loader
   if (loading) return <Loader onComplete={() => {}} />;
 
   return (
     <>
       <Navbar />
       
+      {/* CHAT MODAL */}
+      {activeChatRequest && (
+        <ChatWindow 
+            request={activeChatRequest} 
+            currentUser={user} 
+            onClose={() => setActiveChatRequest(null)} 
+        />
+      )}
+
       <div ref={containerRef} className="min-h-screen w-full pt-28 px-6 md:px-12 pb-20 relative z-10 font-sans flex flex-col">
         
         {/* HEADER */}
@@ -90,7 +97,6 @@ export default function BuyerDashboard() {
             </h1>
           </div>
           
-          {/* Stats Summary */}
           <div className="flex gap-6 mt-6 md:mt-0">
              <div className="text-right">
                 <div className="text-3xl font-black text-white">{watchlist.length}</div>
@@ -158,15 +164,13 @@ export default function BuyerDashboard() {
         {/* --- TAB CONTENT: PILOTS --- */}
         {activeTab === 'pilots' && (
             <div className="flex flex-col gap-3">
-                {/* Header Row */}
                 <div className="dash-item grid grid-cols-12 px-6 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest border-b border-white/5">
                     <div className="col-span-4">Startup</div>
                     <div className="col-span-2">Stage</div>
                     <div className="col-span-3">Status</div>
-                    <div className="col-span-3 text-right">Last Update</div>
+                    <div className="col-span-3 text-right">Actions</div>
                 </div>
 
-                {/* Rows */}
                 {requests.map(req => (
                     <div key={req.id} className="dash-item grid grid-cols-12 px-6 py-4 bg-[#0A0A0A] border border-white/10 rounded-xl items-center hover:bg-white/5 transition-colors">
                         <div className="col-span-4 flex items-center gap-4">
@@ -188,8 +192,13 @@ export default function BuyerDashboard() {
                                 {req.status}
                             </span>
                         </div>
-                        <div className="col-span-3 text-right text-xs text-gray-500 font-mono">
-                            {new Date(req.created_at).toLocaleDateString()}
+                        <div className="col-span-3 text-right flex justify-end gap-2">
+                             <button 
+                                onClick={() => setActiveChatRequest(req)} 
+                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-colors text-xs font-bold uppercase"
+                             >
+                                <MessageCircle size={14} /> Chat
+                             </button>
                         </div>
                     </div>
                 ))}

@@ -10,22 +10,51 @@ export default function TrendingLaunches() {
   const navigate = useNavigate();
   const [launches, setLaunches] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [votedIds, setVotedIds] = useState(new Set());
 
   // --- 1. FETCH REAL DATA ---
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [user]);
 
   const fetchData = async () => {
     try {
-      const { data, error } = await supabase
+      // FIX: Fetch actual count of votes from the join table to avoid double-counting bugs
+      const { data: startupData, error } = await supabase
         .from('startups')
-        .select('*')
+        .select(`
+            *,
+            startup_upvotes (count)
+        `)
         .order('created_at', { ascending: false })
         .limit(3);
 
       if (error) throw error;
-      setLaunches(data || []);
+      
+      // Map the accurate count (Supabase returns { count: N } inside the array)
+      const cleanedData = (startupData || []).map(s => ({
+          ...s,
+          // If startup_upvotes exists and has count, use it. Fallback to existing column if needed.
+          upvotes_count: s.startup_upvotes ? s.startup_upvotes[0]?.count : s.upvotes_count
+      }));
+
+      setLaunches(cleanedData);
+
+      // B. Fetch User Votes
+      if (user) {
+        const { data: votes, error: voteError } = await supabase
+          .from('startup_upvotes')
+          .select('startup_id')
+          .eq('user_id', user.id);
+        
+        if (!voteError && votes) {
+          const ids = new Set(votes.map(v => v.startup_id));
+          setVotedIds(ids);
+        }
+      } else {
+        setVotedIds(new Set());
+      }
+
     } catch (error) {
       console.error("Error fetching trending:", error);
     } finally {
@@ -35,60 +64,48 @@ export default function TrendingLaunches() {
 
   // --- 2. HANDLE UPVOTE ---
   const handleUpvote = async (e, startupId, currentCount) => {
-    e.stopPropagation(); // CRITICAL: Prevents clicking the card (navigation) when just trying to vote
+    e.stopPropagation();
 
-    // A. Auth Check
     if (!user) {
-      const shouldLogin = window.confirm("You need to be logged in as an individual to upvote launches. Would you like to sign in now?");
-      if (shouldLogin) {
-        navigate("/auth?type=buyer&mode=login");
-      }
+      if (window.confirm("Sign in to upvote?")) navigate("/auth?type=buyer&mode=login");
       return;
     }
 
-    // B. Optimistic UI Update
+    if (user.user_metadata?.role === 'founder') {
+        alert("Founders cannot upvote launches.");
+        return;
+    }
+
+    if (votedIds.has(startupId)) return;
+
+    // Optimistic Update
     setLaunches(prev => prev.map(item => 
-      item.id === startupId 
-        ? { ...item, upvotes_count: (item.upvotes_count || 0) + 1 } 
-        : item
+      item.id === startupId ? { ...item, upvotes_count: (item.upvotes_count || 0) + 1 } : item
     ));
+    setVotedIds(prev => new Set(prev).add(startupId));
 
     try {
-      // C. DB Update: Track vote
+      // FIX: Only Insert. We rely on the DB (Trigger or Count Aggregation) for the number.
+      // Removed the RPC call to prevent double counting.
       const { error: voteError } = await supabase
         .from('startup_upvotes')
         .insert({ startup_id: startupId, user_id: user.id });
 
-      if (voteError) {
-        if (voteError.code === '23505') { // Unique violation (Already voted)
-           alert("You have already upvoted this startup!");
-           // Revert UI
-           setLaunches(prev => prev.map(item => 
-             item.id === startupId 
-               ? { ...item, upvotes_count: currentCount } 
-               : item
-           ));
-        } else {
-          throw voteError;
-        }
-      } else {
-        // D. Increment total counter via RPC
-        await supabase.rpc('increment_upvote', { row_id: startupId });
-      }
+      if (voteError && voteError.code !== '23505') throw voteError;
+
     } catch (err) {
       console.error("Upvote failed:", err);
+      // Revert
+      setLaunches(prev => prev.map(item => 
+        item.id === startupId ? { ...item, upvotes_count: currentCount } : item
+      ));
+      setVotedIds(prev => { const s = new Set(prev); s.delete(startupId); return s; });
+      alert("Vote failed. Please try again.");
     }
   };
 
-  // Helper: Get first letter
   const getInitials = (name) => name ? name.charAt(0).toUpperCase() : "?";
-
-  // Helper: Fake Badges for layout
-  const getBadge = (index) => {
-    if (index === 0) return "Daily Top 1";
-    if (index === 1) return "Enterprise Choice";
-    return "High Velocity";
-  };
+  const getBadge = (index) => ["Daily Top 1", "Enterprise Choice", "High Velocity"][index] || "Rising";
 
   return (
     <StackedSection title="Trending Launches" index={1} id="launches">
@@ -108,50 +125,29 @@ export default function TrendingLaunches() {
                 {loading ? (
                     <div className="flex justify-center text-ethaum-green"><Loader2 className="animate-spin" /></div>
                 ) : (
-                    launches.map((item, index) => (
-                        <div 
-                            key={item.id} 
-                            onClick={() => navigate(`/startup/${item.id}`)} // Navigate on card click
-                            className="group flex items-center justify-between p-4 md:p-5 rounded-2xl border border-white/5 bg-black/40 hover:border-ethaum-green transition-all duration-300 cursor-pointer"
-                        >
+                    launches.map((item, index) => {
+                        const isVoted = votedIds.has(item.id);
+                        return (
+                        <div key={item.id} onClick={() => navigate(`/startup/${item.id}`)} className="group flex items-center justify-between p-4 md:p-5 rounded-2xl border border-white/5 bg-black/40 hover:border-ethaum-green transition-all duration-300 cursor-pointer">
                             <div className="flex items-center gap-5">
-                                {/* Initial Icon */}
                                 <div className="w-14 h-14 rounded-xl border border-white/10 flex items-center justify-center text-2xl font-bold text-white bg-black">
                                     {getInitials(item.name)}
                                 </div>
                                 <div>
-                                    <h3 className="text-lg font-bold text-white mb-1 group-hover:text-ethaum-green transition-colors">
-                                        {item.name}
-                                    </h3>
+                                    <h3 className="text-lg font-bold text-white mb-1 group-hover:text-ethaum-green transition-colors">{item.name}</h3>
                                     <div className="flex gap-2 items-center">
-                                        <span className="text-[9px] font-bold bg-white/5 px-2 py-0.5 rounded text-ethaum-green border border-ethaum-green/20">
-                                            {getBadge(index)}
-                                        </span>
+                                        <span className="text-[9px] font-bold bg-white/5 px-2 py-0.5 rounded text-ethaum-green border border-ethaum-green/20">{getBadge(index)}</span>
                                         <span className="text-[10px] font-bold uppercase text-gray-500">{item.stage}</span>
                                         <span className="text-[10px] font-bold uppercase text-gray-500">{item.arr_range}</span>
                                     </div>
                                 </div>
                             </div>
-                            
-                            {/* Upvote Button */}
-                            <button 
-                                onClick={(e) => handleUpvote(e, item.id, item.upvotes_count)}
-                                className="flex flex-col items-center justify-center w-12 h-12 border border-white/10 rounded-xl bg-black hover:border-ethaum-green group-hover:text-ethaum-green active:scale-95 transition-transform z-10"
-                            >
+                            <button onClick={(e) => handleUpvote(e, item.id, item.upvotes_count)} disabled={isVoted} className={`flex flex-col items-center justify-center w-12 h-12 border rounded-xl transition-all z-10 ${isVoted ? "bg-ethaum-green border-ethaum-green text-black cursor-default" : "bg-black border-white/10 hover:border-ethaum-green group-hover:text-ethaum-green active:scale-95"}`}>
                                 <ChevronUp size={20} />
                                 <span className="text-[10px] font-bold">{item.upvotes_count || 0}</span>
                             </button>
                         </div>
-                    ))
-                )}
-                
-                {!loading && launches.length === 0 && (
-                     <div className="text-center text-gray-500 text-sm py-10 border border-white/5 rounded-2xl bg-black/20">
-                        No active launches found. <br/>
-                        <span onClick={() => navigate('/auth?type=founder')} className="text-ethaum-green font-bold cursor-pointer hover:underline">
-                            Launch your product
-                        </span>
-                     </div>
+                    )})
                 )}
             </div>
         </div>

@@ -1,19 +1,23 @@
-import { useState } from "react";
+import { useState, useRef, useLayoutEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
-import { ArrowLeft, Rocket, Building2, ArrowRight, Loader2 } from "lucide-react";
+import { AmbientBackground } from "../components/UIEffects";
+import { ArrowLeft, Rocket, Building2, ArrowRight, Loader2, Lock, Mail, Key, User, Globe } from "lucide-react";
+import gsap from "gsap";
 
 export default function AuthPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   
-  // URL Params: ?type=buyer&mode=login
+  // --- STATE & REFS ---
+  const containerRef = useRef(null);
+  const formRef = useRef(null);
+  
   const initialType = searchParams.get("type") === "buyer" ? "buyer" : "founder";
   const initialMode = searchParams.get("mode") === "login" ? "login" : "signup";
 
   const [activeTab, setActiveTab] = useState(initialType);
-  const [authMode, setAuthMode] = useState(initialMode); // 'login' or 'signup'
-  
+  const [authMode, setAuthMode] = useState(initialMode);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -23,6 +27,37 @@ export default function AuthPage() {
   const [password, setPassword] = useState("");
   const [startupName, setStartupName] = useState("");
 
+  // --- ANIMATIONS ---
+  useLayoutEffect(() => {
+    const ctx = gsap.context(() => {
+      // 1. Entrance Sequence
+      const tl = gsap.timeline();
+      
+      tl.from(".auth-card", { 
+        y: 60, 
+        opacity: 0, 
+        duration: 0.8, 
+        ease: "power3.out" 
+      })
+      .from(".visual-panel-content", { 
+        x: -30, 
+        opacity: 0, 
+        duration: 0.6, 
+        ease: "power2.out" 
+      }, "-=0.4")
+      .from(".form-element", { 
+        y: 15, 
+        opacity: 0, 
+        stagger: 0.08, 
+        duration: 0.5, 
+        ease: "back.out(1.5)" 
+      }, "-=0.4");
+
+    }, containerRef);
+    return () => ctx.revert();
+  }, [authMode]);
+
+  // --- HANDLERS ---
   const handleAuth = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -32,7 +67,7 @@ export default function AuthPage() {
       let result;
       
       if (authMode === 'signup') {
-        // --- SIGN UP LOGIC ---
+        // SIGN UP
         result = await supabase.auth.signUp({
           email,
           password,
@@ -45,7 +80,7 @@ export default function AuthPage() {
           },
         });
       } else {
-        // --- SIGN IN LOGIC ---
+        // SIGN IN
         result = await supabase.auth.signInWithPassword({
           email,
           password,
@@ -56,20 +91,11 @@ export default function AuthPage() {
       if (authError) throw authError;
 
       if (data.user) {
-        // --- IMPROVED REDIRECT LOGIC ---
-        // We use the ACTUAL role from the database, not just the tab they clicked.
-        // This prevents a "Buyer" from accidentally logging in on the "Founder" tab 
-        // and getting sent to the wrong dashboard initially.
+        // SMART REDIRECT
         const userRole = data.user.user_metadata?.role;
-
-        if (userRole === "founder") {
-            navigate("/founder/dashboard");
-        } else if (userRole === "buyer") {
-            navigate("/buyer/dashboard");
-        } else {
-            // Fallback for users without a role (shouldn't happen with new logic)
-            navigate("/");
-        }
+        if (userRole === "founder") navigate("/founder/dashboard");
+        else if (userRole === "buyer") navigate("/buyer/dashboard");
+        else navigate("/");
       }
     } catch (err) {
       setError(err.message);
@@ -78,116 +104,212 @@ export default function AuthPage() {
     }
   };
 
+  const toggleMode = () => {
+    setAuthMode(prev => prev === 'login' ? 'signup' : 'login');
+    setError(null);
+  };
+
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-6 relative z-50">
+    <div ref={containerRef} className="min-h-screen w-full flex items-center justify-center p-4 relative overflow-hidden font-sans">
       
-      {/* Awwwards-style Back Button */}
+      {/* 1. GLOBAL AMBIENCE */}
+      <AmbientBackground />
+      
+      {/* 2. NAVIGATION */}
       <button 
         onClick={() => navigate("/")} 
-        className="absolute top-8 left-8 flex items-center gap-3 text-gray-400 hover:text-white transition-colors cursor-pointer z-50 group"
+        className="absolute top-8 left-8 flex items-center gap-3 text-gray-500 hover:text-white transition-all cursor-pointer z-50 group mix-blend-difference"
       >
-        <div className="p-2 rounded-full bg-white/5 border border-white/10 group-hover:bg-white/10 transition-colors">
-            <ArrowLeft size={16} />
+        <div className="p-2.5 rounded-full bg-white/5 border border-white/10 group-hover:bg-white group-hover:text-black transition-colors">
+            <ArrowLeft size={14} />
         </div>
-        <span className="text-sm font-medium tracking-wide">Back to Home</span>
+        <span className="text-xs font-bold uppercase tracking-widest hidden md:block">Return to Base</span>
       </button>
 
-      {/* The Main Glassmorphism Card */}
-      <div className="w-full max-w-5xl bg-black/60 backdrop-blur-xl border border-white/10 rounded-[2rem] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.8)] flex flex-col md:flex-row min-h-[650px]">
+      {/* 3. THE MONOLITH CARD (COMPACT VERSION) */}
+      <div className="auth-card w-full max-w-[850px] min-h-[500px] bg-[#0A0A0A] border border-white/10 rounded-[1.5rem] overflow-hidden shadow-2xl flex flex-col md:flex-row relative z-10">
         
-        {/* LEFT SIDE: Role Selector */}
-        <div className="w-full md:w-5/12 bg-[#0A0A0A]/80 border-b md:border-b-0 md:border-r border-white/5 p-12 flex flex-col justify-center relative overflow-hidden">
-          {/* Dynamic Glow Background based on Active Tab */}
-          <div className={`absolute top-0 left-0 w-full h-full transition-opacity duration-700 pointer-events-none ${activeTab === 'founder' ? 'opacity-100' : 'opacity-0'}`}>
-             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-ethaum-green/10 rounded-full blur-[150px]"></div>
-          </div>
-          <div className={`absolute top-0 left-0 w-full h-full transition-opacity duration-700 pointer-events-none ${activeTab === 'buyer' ? 'opacity-100' : 'opacity-0'}`}>
-             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-blue-500/10 rounded-full blur-[150px]"></div>
-          </div>
-          
-          <div className="relative z-10">
-            <h1 className="text-3xl font-bold text-white mb-3">
-              Join EthAum<span className="text-ethaum-green">.ai</span>
-            </h1>
-            <p className="text-gray-400 text-sm tracking-wide mb-12">
-              The Series A-D Intelligence Layer.
-            </p>
-
-            {/* Role Selection Cards */}
-            <div className="flex flex-col gap-5">
-               <button type="button" onClick={() => setActiveTab("founder")} className={`flex items-center gap-5 p-5 rounded-2xl border-2 transition-all text-left group relative overflow-hidden ${activeTab === 'founder' ? 'bg-ethaum-green/5 border-ethaum-green' : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20'}`}>
-                  <div className={`p-4 rounded-full transition-colors ${activeTab === 'founder' ? 'bg-ethaum-green text-black' : 'bg-white/10 text-gray-400 group-hover:text-white'}`}>
-                      <Rocket size={24} />
-                  </div>
-                  <div>
-                    <div className={`font-bold text-lg transition-colors ${activeTab === 'founder' ? 'text-ethaum-green' : 'text-white'}`}>Founder</div>
-                    <div className="text-sm text-gray-400 group-hover:text-gray-300">Scaling to $50M ARR</div>
-                  </div>
-               </button>
-
-               <button type="button" onClick={() => setActiveTab("buyer")} className={`flex items-center gap-5 p-5 rounded-2xl border-2 transition-all text-left group relative overflow-hidden ${activeTab === 'buyer' ? 'bg-blue-500/5 border-blue-500' : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20'}`}>
-                  <div className={`p-4 rounded-full transition-colors ${activeTab === 'buyer' ? 'bg-blue-500 text-black' : 'bg-white/10 text-gray-400 group-hover:text-white'}`}>
-                      <Building2 size={24} />
-                  </div>
-                  <div>
-                    <div className={`font-bold text-lg transition-colors ${activeTab === 'buyer' ? 'text-blue-500' : 'text-white'}`}>Enterprise Buyer</div>
-                    <div className="text-sm text-gray-400 group-hover:text-gray-300">Seeking Pilot Deals</div>
-                  </div>
-               </button>
-            </div>
-          </div>
-        </div>
-
-        {/* RIGHT SIDE: Auth Form */}
-        <div className="flex-1 p-12 md:p-16 flex flex-col justify-center relative">
-          
-          <div className="flex justify-between items-center mb-10">
-            <h2 className="text-4xl font-bold text-white tracking-tight">
-               {authMode === 'login' ? 'Sign In.' : (activeTab === 'founder' ? 'List Startup.' : 'Find Tech.')}
-            </h2>
+        {/* === LEFT PANEL: VISUAL CORTEX === */}
+        <div className="relative w-full md:w-[45%] bg-[#0f0f0f] border-b md:border-b-0 md:border-r border-white/5 p-8 md:p-10 flex flex-col justify-between overflow-hidden group">
             
-            {/* Awwwards-style Mode Toggle */}
-            <button 
-              onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')}
-              className="text-[11px] font-black text-ethaum-green hover:text-white uppercase tracking-[0.15em] transition-colors border-b-2 border-ethaum-green pb-1"
-            >
-              {authMode === 'login' ? 'CREATE ACCOUNT' : 'LOGIN INSTEAD'}
-            </button>
-          </div>
-          
-          {error && <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-medium rounded-xl flex items-center gap-2"><span className="w-1.5 h-1.5 bg-red-500 rounded-full"></span>{error}</div>}
+            {/* Dynamic Backgrounds */}
+            <div className={`absolute inset-0 transition-opacity duration-1000 ${authMode === 'signup' && activeTab === 'founder' ? 'opacity-100' : 'opacity-0'}`}>
+               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150%] h-[150%] bg-ethaum-green/5 rounded-full blur-[80px]"></div>
+               <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
+            </div>
+            <div className={`absolute inset-0 transition-opacity duration-1000 ${authMode === 'signup' && activeTab === 'buyer' ? 'opacity-100' : 'opacity-0'}`}>
+               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150%] h-[150%] bg-blue-500/5 rounded-full blur-[80px]"></div>
+               <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
+            </div>
 
-          <form onSubmit={handleAuth} className="flex flex-col gap-5">
-             {/* Full Name - Only for Signup */}
-             {authMode === 'signup' && (
-               <div className="group">
-                 <input required type="text" placeholder="Full Name" value={fullName} onChange={e => setFullName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-white placeholder-gray-500 font-medium focus:outline-none focus:border-white/30 focus:bg-white/10 transition-all" />
-               </div>
-             )}
-             
-             {/* Email */}
-             <div className="group">
-                <input required type="email" placeholder={activeTab === 'founder' ? "founder@startup.com" : "corporate@company.com"} value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-white placeholder-gray-500 font-medium focus:outline-none focus:border-white/30 focus:bg-white/10 transition-all" />
-             </div>
-             
-             {/* Password */}
-             <div className="group">
-                <input required type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-white placeholder-gray-500 font-medium focus:outline-none focus:border-white/30 focus:bg-white/10 transition-all" />
-             </div>
-             
-             {/* Startup Name - Only for Founder Signup */}
-             {authMode === 'signup' && activeTab === 'founder' && (
-               <div className="group">
-                 <input required type="text" placeholder="Startup Name" value={startupName} onChange={e => setStartupName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-white placeholder-gray-500 font-medium focus:outline-none focus:border-white/30 focus:bg-white/10 transition-all" />
-               </div>
-             )}
+            {/* Content */}
+            <div className="visual-panel-content relative z-10 h-full flex flex-col justify-center">
+                
+                {authMode === 'login' ? (
+                    <div className="space-y-5">
+                        <div className="w-12 h-12 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center text-ethaum-green shadow-[0_0_20px_rgba(204,255,0,0.1)]">
+                            <Lock size={20} />
+                        </div>
+                        <h1 className="text-4xl font-light text-white leading-[0.9] tracking-tighter">
+                            Secure <br/><span className="font-bold">Uplink.</span>
+                        </h1>
+                        <p className="text-gray-500 text-xs leading-relaxed max-w-xs border-l border-white/10 pl-4">
+                            Access real-time deal flow, manage your vault, and track pilot performance metrics.
+                        </p>
+                    </div>
+                ) : (
+                    <div className="space-y-6">
+                        <div>
+                            <h1 className="text-3xl font-light text-white mb-2 tracking-tighter">
+                                Initialize <br/><span className="font-bold text-ethaum-green">Protocol.</span>
+                            </h1>
+                            <p className="text-gray-500 text-[10px] uppercase tracking-widest font-bold">Select Ecosystem Role</p>
+                        </div>
 
-             <button disabled={loading} className={`mt-6 w-full py-4 rounded-xl font-black text-base flex items-center justify-center gap-3 transition-all active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed shadow-lg ${activeTab === 'founder' ? 'bg-ethaum-green text-black hover:bg-[#b3ff00] shadow-ethaum-green/20' : 'bg-blue-500 text-white hover:bg-blue-400 shadow-blue-500/20'}`}>
-                {loading ? <Loader2 className="animate-spin w-5 h-5" /> : (authMode === 'login' ? 'Sign In' : 'Create Account')}
-                {!loading && <ArrowRight size={20} />}
-             </button>
-          </form>
+                        <div className="flex flex-col gap-3">
+                            {/* Role Card: Founder */}
+                            <button 
+                                onClick={() => setActiveTab("founder")}
+                                className={`group/card relative p-1 rounded-xl transition-all duration-300 ${activeTab === 'founder' ? 'bg-gradient-to-r from-ethaum-green/50 to-transparent' : 'bg-white/5 hover:bg-white/10'}`}
+                            >
+                                <div className="bg-[#111] p-4 rounded-lg flex items-center gap-4 border border-white/5 h-full relative z-10">
+                                    <div className={`p-2.5 rounded-lg transition-colors ${activeTab === 'founder' ? 'bg-ethaum-green text-black' : 'bg-white/5 text-gray-500'}`}>
+                                        <Rocket size={18} />
+                                    </div>
+                                    <div className="text-left">
+                                        <div className={`font-bold text-xs ${activeTab === 'founder' ? 'text-white' : 'text-gray-400'}`}>Founder</div>
+                                        <div className="text-[10px] text-gray-600">Scaling Deep Tech</div>
+                                    </div>
+                                    {activeTab === 'founder' && <div className="absolute right-4 w-1.5 h-1.5 bg-ethaum-green rounded-full shadow-[0_0_10px_#ccff00]"></div>}
+                                </div>
+                            </button>
+
+                            {/* Role Card: Buyer */}
+                            <button 
+                                onClick={() => setActiveTab("buyer")}
+                                className={`group/card relative p-1 rounded-xl transition-all duration-300 ${activeTab === 'buyer' ? 'bg-gradient-to-r from-blue-500/50 to-transparent' : 'bg-white/5 hover:bg-white/10'}`}
+                            >
+                                <div className="bg-[#111] p-4 rounded-lg flex items-center gap-4 border border-white/5 h-full relative z-10">
+                                    <div className={`p-2.5 rounded-lg transition-colors ${activeTab === 'buyer' ? 'bg-blue-500 text-black' : 'bg-white/5 text-gray-500'}`}>
+                                        <Building2 size={18} />
+                                    </div>
+                                    <div className="text-left">
+                                        <div className={`font-bold text-xs ${activeTab === 'buyer' ? 'text-white' : 'text-gray-400'}`}>Enterprise Buyer</div>
+                                        <div className="text-[10px] text-gray-600">Seeking Pilots</div>
+                                    </div>
+                                    {activeTab === 'buyer' && <div className="absolute right-4 w-1.5 h-1.5 bg-blue-500 rounded-full shadow-[0_0_10px_#3b82f6]"></div>}
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Footer Decor */}
+                <div className="absolute bottom-0 left-0 text-[9px] text-gray-700 font-mono uppercase tracking-widest">
+                    System v2.4.0 :: {activeTab.toUpperCase()}
+                </div>
+            </div>
         </div>
+
+        {/* === RIGHT PANEL: CONTROL PLANE === */}
+        <div className="flex-1 bg-[#0A0A0A] p-8 md:p-10 flex flex-col justify-center relative">
+            
+            {/* Header */}
+            <div className="form-element flex justify-between items-end mb-8 border-b border-white/5 pb-4">
+                <h2 className="text-xl font-bold text-white tracking-tight">
+                    {authMode === 'login' ? 'Identify.' : 'Register.'}
+                </h2>
+                <button 
+                    onClick={toggleMode}
+                    className="text-[10px] font-bold text-gray-500 hover:text-white uppercase tracking-widest transition-colors flex items-center gap-2 group"
+                >
+                    {authMode === 'login' ? 'No Access?' : 'Has ID?'}
+                    <span className="text-ethaum-green group-hover:underline">
+                        {authMode === 'login' ? 'Apply for Key' : 'Login'}
+                    </span>
+                </button>
+            </div>
+
+            {/* Error Display */}
+            {error && (
+                <div className="form-element mb-6 p-3 bg-red-900/10 border-l-2 border-red-500 text-red-400 text-[10px] font-mono">
+                    ERROR :: {error}
+                </div>
+            )}
+
+            {/* Form */}
+            <form ref={formRef} onSubmit={handleAuth} className="flex flex-col gap-4">
+                
+                {/* Full Name (Signup Only) */}
+                {authMode === 'signup' && (
+                    <div className="form-element group relative">
+                        <User size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-600 group-focus-within:text-ethaum-green transition-colors" />
+                        <input 
+                            required 
+                            type="text" 
+                            placeholder="Full Name"
+                            value={fullName}
+                            onChange={e => setFullName(e.target.value)}
+                            className="w-full bg-[#111] border border-white/5 rounded-xl px-10 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-ethaum-green/50 focus:bg-white/5 transition-all"
+                        />
+                    </div>
+                )}
+
+                {/* Email */}
+                <div className="form-element group relative">
+                    <Mail size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-600 group-focus-within:text-ethaum-green transition-colors" />
+                    <input 
+                        required 
+                        type="email" 
+                        placeholder={authMode === 'login' ? "Access ID (Email)" : "Corporate Email"}
+                        value={email}
+                        onChange={e => setEmail(e.target.value)}
+                        className="w-full bg-[#111] border border-white/5 rounded-xl px-10 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-ethaum-green/50 focus:bg-white/5 transition-all"
+                    />
+                </div>
+
+                {/* Password */}
+                <div className="form-element group relative">
+                    <Key size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-600 group-focus-within:text-ethaum-green transition-colors" />
+                    <input 
+                        required 
+                        type="password" 
+                        placeholder="Encrypted Key (Password)"
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        className="w-full bg-[#111] border border-white/5 rounded-xl px-10 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-ethaum-green/50 focus:bg-white/5 transition-all"
+                    />
+                </div>
+
+                {/* Startup Name (Founder Signup Only) */}
+                {authMode === 'signup' && activeTab === 'founder' && (
+                    <div className="form-element group relative">
+                        <Globe size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-600 group-focus-within:text-ethaum-green transition-colors" />
+                        <input 
+                            required 
+                            type="text" 
+                            placeholder="Venture Name"
+                            value={startupName}
+                            onChange={e => setStartupName(e.target.value)}
+                            className="w-full bg-[#111] border border-white/5 rounded-xl px-10 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-ethaum-green/50 focus:bg-white/5 transition-all"
+                        />
+                    </div>
+                )}
+
+                {/* Action Button */}
+                <button 
+                    disabled={loading}
+                    className="form-element mt-6 w-full group relative overflow-hidden rounded-xl bg-white text-black font-black text-xs uppercase tracking-widest py-3.5 hover:bg-ethaum-green transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_30px_rgba(204,255,0,0.4)] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    <span className="relative z-10 flex items-center justify-center gap-3">
+                        {loading ? <Loader2 className="animate-spin" size={16} /> : (authMode === 'login' ? 'Authenticate' : 'Initiate Launch')}
+                        {!loading && <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />}
+                    </span>
+                </button>
+
+            </form>
+        </div>
+
       </div>
     </div>
   );

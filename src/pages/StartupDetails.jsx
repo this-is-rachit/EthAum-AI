@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
-import { useAuth } from "../context/AuthContext"; // Import Auth
+import { useAuth } from "../context/AuthContext";
 import Navbar from "../components/NavBar";
 import Loader from "../components/Loader";
 import VaultDoor from "../components/VaultDoor";
@@ -11,19 +11,15 @@ import gsap from "gsap";
 export default function StartupDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth(); // Get current user
+  const { user } = useAuth();
   
   const [startup, setStartup] = useState(null);
   const [showLoader, setShowLoader] = useState(true);
   const containerRef = useRef(null);
 
-  // --- 1. SMART LAZY LOAD (Data Fetching) ---
   useEffect(() => {
     const loadData = async () => {
-      // Force a minimum load time for smooth UX
       const minLoadTime = new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Fetch Startup Data
       const dataFetch = supabase.from('startups').select('*').eq('id', id).single();
 
       try {
@@ -34,13 +30,11 @@ export default function StartupDetails() {
         console.error(error);
         navigate("/");
       }
-      // Note: We don't set showLoader(false) here; the Loader component handles its own exit.
     };
 
     loadData();
   }, [id, navigate]);
 
-  // --- 2. ENTRANCE ANIMATIONS ---
   useEffect(() => {
     if (!showLoader && startup) {
       gsap.fromTo(".fade-in", 
@@ -50,22 +44,27 @@ export default function StartupDetails() {
     }
   }, [showLoader, startup]);
 
-  // --- 3. HANDLE PILOT REQUEST ---
   const handleRequestPilot = async () => {
-    // A. Auth Check
     if (!user) {
         const confirmLogin = window.confirm("You must be logged in to request a pilot. Sign in now?");
         if (confirmLogin) navigate("/auth?type=buyer&mode=login");
         return;
     }
-    
-    // B. Role Check (Optional: Strict Mode)
-    // if (user.user_metadata?.role !== 'buyer') {
-    //     alert("Only Enterprise Buyers can request pilots.");
-    //     return;
-    // }
 
     try {
+        // Check if already requested
+        const { data: existing } = await supabase
+            .from('pilot_requests')
+            .select('id')
+            .eq('startup_id', startup.id)
+            .eq('buyer_id', user.id)
+            .single();
+
+        if (existing) {
+            alert("Request already active. Check your Dashboard.");
+            return;
+        }
+
         const { error } = await supabase
             .from('pilot_requests')
             .insert({
@@ -74,22 +73,15 @@ export default function StartupDetails() {
                 status: 'pending'
             });
 
-        if (error) {
-            if (error.code === '23505') {
-                alert("Request already active. Check your Dashboard.");
-            } else {
-                throw error;
-            }
-        } else {
-            alert("Pilot Request Sent! The founder has been notified.");
-        }
+        if (error) throw error;
+        alert("Pilot Request Sent! The founder has been notified.");
+        
     } catch (err) {
         console.error("Pilot request error:", err);
         alert("Failed to send request. Please try again.");
     }
   };
 
-  // --- RENDER HELPERS ---
   if (showLoader) {
     if (startup) return <Loader onComplete={() => setShowLoader(false)} />;
     return <Loader onComplete={() => {}} />;
@@ -119,8 +111,6 @@ export default function StartupDetails() {
             
             {/* === COL 1: IDENTITY & STATS (4 Cols) === */}
             <div className="lg:col-span-4 flex flex-col gap-4">
-                
-                {/* A. IDENTITY CARD */}
                 <div className="bg-[#0A0A0A] border border-white/10 p-6 rounded-2xl relative overflow-hidden flex-1 flex flex-col justify-between group">
                     <div>
                         <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity"><ShieldCheck size={100} className="text-ethaum-green" /></div>
@@ -153,7 +143,6 @@ export default function StartupDetails() {
                     </div>
                 </div>
 
-                {/* B. STATS ROW */}
                 <div className="grid grid-cols-2 gap-4 h-32">
                     <div className="bg-[#0A0A0A] border border-white/10 p-5 rounded-2xl flex flex-col justify-center relative overflow-hidden">
                         <div className="absolute right-2 top-2 opacity-20"><Layers size={20} className="text-gray-500" /></div>
@@ -170,8 +159,6 @@ export default function StartupDetails() {
 
             {/* === COL 2: INTELLIGENCE & VAULT (8 Cols) === */}
             <div className="lg:col-span-8 flex flex-col gap-4 h-full">
-                
-                {/* C. TECH BRIEFING */}
                 <div className="bg-[#0A0A0A] border border-white/10 p-8 rounded-2xl">
                     <div className="flex items-center gap-3 mb-4">
                         <div className="p-1.5 bg-white/5 rounded text-ethaum-green"><Cpu size={16} /></div>
@@ -182,7 +169,6 @@ export default function StartupDetails() {
                     </p>
                 </div>
 
-                {/* D. THE VAULT (Flexible Height) */}
                 <div className="flex-1 min-h-[350px]">
                     <VaultDoor className="h-full">
                         <div className="p-8 h-full flex flex-col justify-center">
@@ -198,7 +184,6 @@ export default function StartupDetails() {
                                 </div>
                              </div>
 
-                             {/* Docs Grid */}
                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1">
                                 <div className="group flex items-center justify-between p-4 bg-black border border-white/10 rounded-xl hover:border-ethaum-green/50 cursor-pointer transition-all h-full">
                                     <div className="flex items-center gap-4">
@@ -230,7 +215,6 @@ export default function StartupDetails() {
                         </div>
                     </VaultDoor>
                 </div>
-
             </div>
         </div>
       </div>
