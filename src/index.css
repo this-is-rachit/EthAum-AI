@@ -1,38 +1,62 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100;300;400;500;600;700;800&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Global Styles */
-body {
-  background-color: #050505;
-  color: #EAEAEA;
-  font-family: 'Inter', sans-serif;
-  overflow-x: hidden;
-  margin: 0;
-  padding: 0;
+@font-face {
+  font-family: 'Inter';
+  src: url('https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hjp-Ek-_EeA.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
 }
 
-/* Custom Scrollbar */
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #050505;
+  color: #EAEAEA;
+  /* RESTORED DEFAULT CURSOR */
+  cursor: auto; 
+  /* Fix for Lenis Scroll */
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* Ensure links/buttons show the hand icon */
+a, button, [role="button"], input[type="submit"], input[type="button"] {
+  cursor: pointer;
+}
+
+/* Custom Scrollbar (Optional, kept for style but standard width) */
 ::-webkit-scrollbar {
   width: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #050505; 
+  background: #050505;
 }
 ::-webkit-scrollbar-thumb {
-  background: #333; 
+  background: #333;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #CCFF00; 
+  background: #ccff00;
 }
 
-/* === THE CURSOR FIX === */
-/* This ensures the system mouse is hidden on EVERYTHING */
-@media (pointer: fine) {
-  html, body, *, a, button, [role="button"], input, select, textarea {
-    cursor: none !important;
-  }
+/* Animations */
+@keyframes marquee {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-50%, 0, 0); }
+}
+
+.animate-marquee {
+  animation: marquee 20s linear infinite;
+  will-change: transform;
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 0.6; transform: scale(1) translate3d(0,0,0); }
+  50% { opacity: 1; transform: scale(1.1) translate3d(0,0,0); }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 8s ease-in-out infinite;
+  will-change: opacity, transform;
 }

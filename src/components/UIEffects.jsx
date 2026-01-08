@@ -1,99 +1,41 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import gsap from "gsap";
 
-/* === 1. TIGHTER CURSOR === */
-export function CustomCursor() {
-  const mainCursor = useRef(null);
-  const followerCursor = useRef(null);
-  const [isHovering, setIsHovering] = useState(false);
-
-  useEffect(() => {
-    const moveCursor = (e) => {
-      gsap.set(mainCursor.current, { x: e.clientX, y: e.clientY });
-      gsap.to(followerCursor.current, { x: e.clientX, y: e.clientY, duration: 0.15, ease: "power2.out" });
-    };
-
-    const handleLinkHoverEvents = () => {
-      const links = document.querySelectorAll("a, button, .clickable, input, textarea");
-      links.forEach((link) => {
-        link.addEventListener("mouseenter", () => setIsHovering(true));
-        link.addEventListener("mouseleave", () => setIsHovering(false));
-      });
-    };
-
-    window.addEventListener("mousemove", moveCursor);
-    handleLinkHoverEvents();
-    const observer = new MutationObserver(handleLinkHoverEvents);
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    return () => {
-      window.removeEventListener("mousemove", moveCursor);
-      observer.disconnect();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (isHovering) {
-      gsap.to(mainCursor.current, { scale: 0, opacity: 0, duration: 0.1 });
-      gsap.to(followerCursor.current, { scale: 3, backgroundColor: "rgba(204, 255, 0, 0.1)", borderColor: "transparent", mixBlendMode: "difference", duration: 0.2 });
-    } else {
-      gsap.to(mainCursor.current, { scale: 1, opacity: 1, duration: 0.1 });
-      gsap.to(followerCursor.current, { scale: 1, backgroundColor: "transparent", borderColor: "rgba(204, 255, 0, 0.6)", mixBlendMode: "normal", duration: 0.2 });
-    }
-  }, [isHovering]);
-
+export function AmbientBackground() {
   return (
-    <>
-      <div ref={mainCursor} className="fixed top-0 left-0 w-2 h-2 bg-ethaum-green rounded-full pointer-events-none z-[9999] -translate-x-1/2 -translate-y-1/2 mix-blend-difference hidden md:block will-change-transform" />
-      <div ref={followerCursor} className="fixed top-0 left-0 w-8 h-8 border border-ethaum-green/60 rounded-full pointer-events-none z-[9998] -translate-x-1/2 -translate-y-1/2 hidden md:block will-change-transform" />
-    </>
-  );
-}
+    <div className="fixed inset-0 z-[-1] w-full h-full overflow-hidden pointer-events-none bg-[#050505]">
+      
+      {/* 1. VISIBLE GREY CHEQUERED GRID */}
+      <div 
+        className="absolute inset-0 bg-[linear-gradient(to_right,#333_1px,transparent_1px),linear-gradient(to_bottom,#333_1px,transparent_1px)] bg-[size:4rem_4rem] opacity-[0.15]"
+      ></div>
 
-/* === 2. INFINITE MARQUEE === */
-export function InfiniteMarquee() {
-  const marqueeRef = useRef(null);
-  useEffect(() => {
-    const el = marqueeRef.current;
-    if (!el) return;
-    gsap.to(el, { xPercent: -50, repeat: -1, duration: 30, ease: "linear" });
-  }, []);
+      {/* 2. CENTERED GREEN BEACON (PERMANENT) */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[60vw] h-[60vw] bg-ethaum-green/60 rounded-full blur-[180px] animate-pulse-slow"></div>
+      
+      {/* 3. WHITE CORE (Brightness) */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[25vw] h-[25vw] bg-white/20 rounded-full blur-[100px]"></div>
 
-  return (
-    <div className="w-full overflow-hidden border-t border-white/10 py-4 relative z-20 backdrop-blur-md bg-black/40">
-      <div ref={marqueeRef} className="flex gap-20 whitespace-nowrap text-xs font-bold uppercase tracking-[0.2em] text-gray-400 w-max">
-        <span>Autonomous Intelligence</span> • <span>Market Validation</span> • <span>Enterprise Pilots</span> • <span>Zero Upfront Cost</span> •
-        <span>Autonomous Intelligence</span> • <span>Market Validation</span> • <span>Enterprise Pilots</span> • <span>Zero Upfront Cost</span> •
-      </div>
+      {/* 4. NOISE TEXTURE */}
+      <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.05] mix-blend-overlay"></div>
     </div>
   );
 }
 
-/* === 3. VISIBLE GRID & GRADIENT (THE FIX) === */
-export function AmbientBackground() {
-    return (
-        <div className="fixed inset-0 z-[-1] pointer-events-none overflow-hidden bg-[#020202]">
-            
-            {/* 1. THE CHEQUERED GRID (Grey Lines) */}
-            <div 
-                className="absolute inset-0 opacity-[0.2]" 
-                style={{
-                    backgroundImage: `
-                        linear-gradient(#333 1px, transparent 1px), 
-                        linear-gradient(90deg, #333 1px, transparent 1px)
-                    `,
-                    backgroundSize: '60px 60px'
-                }}
-            ></div>
+export function InfiniteMarquee() {
+  return (
+    <div className="w-full bg-black/40 backdrop-blur-md text-white py-4 overflow-hidden flex whitespace-nowrap border-y border-white/10 relative z-10">
+      <div className="absolute top-0 left-0 w-32 h-full bg-gradient-to-r from-[#050505] to-transparent z-10 pointer-events-none"></div>
+      <div className="absolute top-0 right-0 w-32 h-full bg-gradient-to-l from-[#050505] to-transparent z-10 pointer-events-none"></div>
 
-            {/* 2. THE GREEN GRADIENT (Pulse) */}
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] bg-ethaum-green/20 rounded-full blur-[180px] animate-pulse" style={{ animationDuration: '6s' }} />
-            
-            {/* 3. Secondary Gradient Corner */}
-            <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] bg-ethaum-green/10 rounded-full blur-[120px]" />
-
-            {/* 4. Noise Texture for Realism */}
-            <div className="absolute inset-0 opacity-[0.05] bg-[url('https://grainy-gradients.vercel.app/noise.svg')] mix-blend-overlay"></div>
-        </div>
-    )
+      <div className="animate-marquee flex gap-16 font-mono font-medium uppercase tracking-[0.2em] text-xs items-center opacity-80 transform-gpu will-change-transform">
+        {Array(20).fill("Launch · Validate · Pilot · Scale").map((item, i) => (
+          <span key={i} className="flex items-center gap-16">
+            {item} 
+            <span className="w-1.5 h-1.5 border border-ethaum-green rounded-full"></span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
