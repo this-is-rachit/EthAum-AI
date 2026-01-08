@@ -15,24 +15,23 @@ import StartupDetails from "./pages/StartupDetails";
 import BuyerDashboard from "./pages/BuyerDashboard";
 
 // --- PAGE IMPORTS ---
-// Ensure these files exist in src/pages/ or change the path to src/components/
 import AuthPage from "./pages/AuthPage";
 import FounderDashboard from "./pages/FounderDashboard";
 
 // --- LOCAL COMPONENTS ---
 function LandingPage() {
   return (
-    <>
+    // FIX: Main Landmark with overflow handling
+    <main className="w-full relative overflow-hidden">
       <Navbar />
       <Hero />
       <TrendingLaunches />
       <MarketIntelligence />
       <EnterpriseDeals />
       <Footer />
-    </>
+    </main>
   );
 }
-
 
 // --- MAIN APP EXPORT ---
 export default function App() {
@@ -43,29 +42,27 @@ export default function App() {
       <BrowserRouter>
         {isLoading && <Loader onComplete={() => setIsLoading(false)} />}
 
-        {/* Global Background */}
+        {/* Global Background Component (Optional overlay) */}
         <AmbientBackground />
 
-        <div className={`${isLoading ? 'h-screen overflow-hidden' : ''}`}>
+        {/* FIX: overflow-x-hidden strictly applied */}
+        <div className={`w-full overflow-x-hidden relative ${isLoading ? 'h-screen overflow-y-hidden' : ''}`}>
           <SmoothScrollWrapper>
             <Routes>
               {/* 1. Public Routes */}
               <Route path="/" element={<LandingPage />} />
               <Route path="/auth" element={<AuthPage />} />
               <Route path="/startup/:id" element={<StartupDetails />} />
+              
               {/* 2. Protected Founder Route */}
               <Route element={<ProtectedRoute allowedRole="founder" />}>
                 <Route path="/founder/dashboard" element={<FounderDashboard />} />
-              </Route>
-              <Route element={<ProtectedRoute allowedRole="buyer" />}>
-                <Route path="/buyer/dashboard" element={<BuyerDashboard />} />
               </Route>
 
               {/* 3. Protected Buyer Route */}
               <Route element={<ProtectedRoute allowedRole="buyer" />}>
                 <Route path="/buyer/dashboard" element={<BuyerDashboard />} />
               </Route>
-
 
               {/* 4. Catch-All */}
               <Route path="*" element={<Navigate to="/" />} />

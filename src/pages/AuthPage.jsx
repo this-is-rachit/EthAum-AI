@@ -56,8 +56,20 @@ export default function AuthPage() {
       if (authError) throw authError;
 
       if (data.user) {
-        // Redirect logic
-        navigate(activeTab === "founder" ? "/founder/dashboard" : "/buyer/dashboard");
+        // --- IMPROVED REDIRECT LOGIC ---
+        // We use the ACTUAL role from the database, not just the tab they clicked.
+        // This prevents a "Buyer" from accidentally logging in on the "Founder" tab 
+        // and getting sent to the wrong dashboard initially.
+        const userRole = data.user.user_metadata?.role;
+
+        if (userRole === "founder") {
+            navigate("/founder/dashboard");
+        } else if (userRole === "buyer") {
+            navigate("/buyer/dashboard");
+        } else {
+            // Fallback for users without a role (shouldn't happen with new logic)
+            navigate("/");
+        }
       }
     } catch (err) {
       setError(err.message);

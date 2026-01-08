@@ -21,7 +21,10 @@ export default function Footer() {
                     Ready to <br />
                     <span className="text-ethaum-green">Scale?</span>
                 </h2>
-                <button className="group flex items-center gap-4 bg-white text-black px-8 py-4 rounded-full font-bold text-lg hover:bg-ethaum-green transition-all duration-300 shadow-[0_0_20px_rgba(255,255,255,0.2)]">
+                <button 
+                    aria-label="Apply for Cohort 2026"
+                    className="group flex items-center gap-4 bg-white text-black px-8 py-4 rounded-full font-bold text-lg hover:bg-ethaum-green transition-all duration-300 shadow-[0_0_20px_rgba(255,255,255,0.2)]"
+                >
                     Apply for Cohort 2026
                     <ArrowRight className="group-hover:translate-x-1 transition-transform" />
                 </button>
@@ -30,41 +33,51 @@ export default function Footer() {
             <div className="w-full md:w-96 mt-12 md:mt-0">
                 <p className="text-gray-400 text-sm mb-4 font-medium">Get the weekly deep tech memo.</p>
                 <div className="flex gap-2">
-                    <input type="email" placeholder="founder@startup.com" className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white text-sm focus:outline-none focus:border-ethaum-green transition-colors" />
-                    <button className="bg-white/10 border border-white/10 rounded-lg px-4 hover:bg-white hover:text-black transition-colors"><ArrowRight size={18} /></button>
+                    <input 
+                        type="email" 
+                        placeholder="founder@startup.com" 
+                        aria-label="Email Address for Newsletter"
+                        className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white text-sm focus:outline-none focus:border-ethaum-green transition-colors" 
+                    />
+                    <button 
+                        aria-label="Subscribe"
+                        className="bg-white/10 border border-white/10 rounded-lg px-4 hover:bg-white hover:text-black transition-colors"
+                    >
+                        <ArrowRight size={18} />
+                    </button>
                 </div>
             </div>
         </div>
 
         <div className="h-px w-full bg-white/10 mb-16"></div>
 
-        {/* 2. LINKS */}
+        {/* 2. LINKS - Changed h4 to h3 for semantic hierarchy */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-10 md:gap-20 mb-20 relative z-10">
             <div className="flex flex-col gap-4">
-                <h4 className="text-white font-bold mb-2">Platform</h4>
+                <h3 className="text-white font-bold mb-2 text-sm">Platform</h3>
                 <a href="#" className="text-gray-500 hover:text-ethaum-green text-sm">Launchpad</a>
                 <a href="#" className="text-gray-500 hover:text-ethaum-green text-sm">Intelligence</a>
                 <a href="#" className="text-gray-500 hover:text-ethaum-green text-sm">Deal Flow</a>
             </div>
             <div className="flex flex-col gap-4">
-                <h4 className="text-white font-bold mb-2">Resources</h4>
+                <h3 className="text-white font-bold mb-2 text-sm">Resources</h3>
                 <a href="#" className="text-gray-500 hover:text-ethaum-green text-sm">Manifesto</a>
                 <a href="#" className="text-gray-500 hover:text-ethaum-green text-sm">Deck Template</a>
                 <a href="#" className="text-gray-500 hover:text-ethaum-green text-sm">API Docs</a>
             </div>
             <div className="flex flex-col gap-4">
-                <h4 className="text-white font-bold mb-2">Company</h4>
+                <h3 className="text-white font-bold mb-2 text-sm">Company</h3>
                 <a href="#" className="text-gray-500 hover:text-ethaum-green text-sm">About</a>
                 <a href="#" className="text-gray-500 hover:text-ethaum-green text-sm">Careers</a>
                 <a href="#" className="text-gray-500 hover:text-ethaum-green text-sm">Contact</a>
             </div>
              <div className="flex flex-col gap-4">
-                <h4 className="text-white font-bold mb-2">Connect</h4>
+                <h3 className="text-white font-bold mb-2 text-sm">Connect</h3>
                 <div className="flex gap-4">
-                    <SocialIcon icon={<Twitter size={18} />} />
-                    <SocialIcon icon={<Linkedin size={18} />} />
-                    <SocialIcon icon={<Github size={18} />} />
-                    <SocialIcon icon={<Disc size={18} />} />
+                    <SocialIcon icon={<Twitter size={18} />} label="Twitter" />
+                    <SocialIcon icon={<Linkedin size={18} />} label="LinkedIn" />
+                    <SocialIcon icon={<Github size={18} />} label="GitHub" />
+                    <SocialIcon icon={<Disc size={18} />} label="Discord" />
                 </div>
             </div>
         </div>
@@ -80,12 +93,26 @@ export default function Footer() {
                 <a href="#" className="hover:text-white">Privacy</a>
                 <a href="#" className="hover:text-white">Terms</a>
             </div>
-            <div className="mt-4 md:mt-0 font-mono text-gray-500 cursor-pointer hover:text-white" onClick={scrollToTop}>[ Back to Top ]</div>
+            <button 
+                onClick={scrollToTop}
+                aria-label="Back to top"
+                className="mt-4 md:mt-0 font-mono text-gray-500 cursor-pointer hover:text-white bg-transparent border-none"
+            >
+                [ Back to Top ]
+            </button>
         </div>
     </footer>
   );
 }
 
-function SocialIcon({ icon }) {
-    return <a href="#" className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white hover:text-black transition-colors">{icon}</a>
+function SocialIcon({ icon, label }) {
+    return (
+        <a 
+            href="#" 
+            aria-label={label}
+            className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white hover:text-black transition-colors"
+        >
+            {icon}
+        </a>
+    );
 }
