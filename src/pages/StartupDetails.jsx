@@ -5,7 +5,11 @@ import { useAuth } from "../context/AuthContext";
 import Navbar from "../components/NavBar";
 import Loader from "../components/Loader";
 import VaultDoor from "../components/VaultDoor";
-import { ArrowLeft, Globe, ShieldCheck, Zap, Layers, DollarSign, Lock, FileText, ArrowUpRight, Cpu, Share2 } from "lucide-react";
+import { 
+  ArrowLeft, Globe, ShieldCheck, Zap, Layers, 
+  Lock, FileText, ArrowUpRight, 
+  Cpu, Star, Clock
+} from "lucide-react";
 import gsap from "gsap";
 
 export default function StartupDetails() {
@@ -14,209 +18,211 @@ export default function StartupDetails() {
   const { user } = useAuth();
   
   const [startup, setStartup] = useState(null);
+  const [reviews, setReviews] = useState([]);
+  const [requestStatus, setRequestStatus] = useState(null); 
   const [showLoader, setShowLoader] = useState(true);
   const containerRef = useRef(null);
 
   useEffect(() => {
     const loadData = async () => {
-      const minLoadTime = new Promise(resolve => setTimeout(resolve, 1500));
-      const dataFetch = supabase.from('startups').select('*').eq('id', id).single();
+      const minLoadTime = new Promise(resolve => setTimeout(resolve, 800));
+      const dataPromise = (async () => {
+          const { data: sData, error: sError } = await supabase.from('startups').select('*').eq('id', id).single();
+          if (sError) throw sError;
+          
+          if (user) {
+            const { data: rStatus } = await supabase.from('pilot_requests').select('status').eq('startup_id', id).eq('buyer_id', user.id).maybeSingle();
+            if (rStatus) setRequestStatus(rStatus.status);
+          }
+
+          const { data: rData } = await supabase.from('reviews').select('*').eq('startup_id', id);
+          let enrichedReviews = [];
+          if (rData?.length > 0) {
+              const userIds = [...new Set(rData.map(r => r.reviewer_id))];
+              const { data: profiles } = await supabase.from('profiles').select('id, full_name, role').in('id', userIds);
+              enrichedReviews = rData.map(r => ({
+                  ...r,
+                  reviewer: profiles?.find(p => p.id === r.reviewer_id) || { full_name: "Anonymous" }
+              }));
+          }
+          return { startup: sData, reviews: enrichedReviews };
+      })();
 
       try {
-        const [_, { data, error }] = await Promise.all([minLoadTime, dataFetch]);
-        if (error) throw error;
-        setStartup(data);
-      } catch (error) {
-        console.error(error);
-        navigate("/");
-      }
+        const [_, result] = await Promise.all([minLoadTime, dataPromise]);
+        setStartup(result.startup);
+        setReviews(result.reviews);
+      } catch (error) { navigate("/"); }
     };
-
     loadData();
-  }, [id, navigate]);
+  }, [id, navigate, user]);
 
   useEffect(() => {
     if (!showLoader && startup) {
-      gsap.fromTo(".fade-in", 
-        { y: 20, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.6, stagger: 0.05, ease: "power2.out" }
-      );
+      gsap.fromTo(".fade-in", { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.4, stagger: 0.05 });
     }
   }, [showLoader, startup]);
 
   const handleRequestPilot = async () => {
-    if (!user) {
-        const confirmLogin = window.confirm("You must be logged in to request a pilot. Sign in now?");
-        if (confirmLogin) navigate("/auth?type=buyer&mode=login");
-        return;
-    }
-
+    if (!user) { navigate("/auth?type=buyer&mode=login"); return; }
     try {
-        // Check if already requested
-        const { data: existing } = await supabase
-            .from('pilot_requests')
-            .select('id')
-            .eq('startup_id', startup.id)
-            .eq('buyer_id', user.id)
-            .single();
-
-        if (existing) {
-            alert("Request already active. Check your Dashboard.");
-            return;
-        }
-
-        const { error } = await supabase
-            .from('pilot_requests')
-            .insert({
-                startup_id: startup.id,
-                buyer_id: user.id,
-                status: 'pending'
-            });
-
-        if (error) throw error;
-        alert("Pilot Request Sent! The founder has been notified.");
-        
-    } catch (err) {
-        console.error("Pilot request error:", err);
-        alert("Failed to send request. Please try again.");
-    }
+        const { error } = await supabase.from('pilot_requests').insert({ startup_id: startup.id, buyer_id: user.id, status: 'pending' });
+        if (error) {
+            if (error.code === '23505') alert("Signal already active.");
+            else throw error;
+        } else { setRequestStatus('pending'); }
+    } catch (err) { alert("Failed to send request."); }
   };
 
-  if (showLoader) {
-    if (startup) return <Loader onComplete={() => setShowLoader(false)} />;
-    return <Loader onComplete={() => {}} />;
-  }
-
+  if (showLoader) return <Loader onComplete={() => setShowLoader(false)} />;
   if (!startup) return null;
 
   return (
     <>
       <Navbar />
-      
-      <div ref={containerRef} className="min-h-screen w-full pt-24 pb-12 px-4 md:px-12 relative z-10 font-sans flex flex-col">
+      <div ref={containerRef} className="min-h-screen w-full pt-20 pb-12 px-6 md:px-12 lg:px-20 bg-black text-white font-sans selection:bg-ethaum-green selection:text-black">
         
-        {/* COMPACT HEADER */}
-        <div className="flex items-center justify-between mb-6 fade-in border-b border-white/5 pb-4">
-            <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-xs font-bold text-gray-500 hover:text-white uppercase tracking-widest transition-colors group">
-                <ArrowLeft size={14} className="group-hover:-translate-x-1 transition-transform" /> Back to Intelligence
+        <div className="flex items-center justify-between mb-6 fade-in border-b border-white/10 pb-4">
+            <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-[10px] font-bold text-gray-500 hover:text-white uppercase tracking-widest transition-all">
+              <ArrowLeft size={12} /> Return
             </button>
-            <div className="flex items-center gap-3">
-                <div className="px-3 py-1 bg-white/5 rounded-full text-[10px] text-gray-400 font-mono">ID: {startup.id.slice(0,8).toUpperCase()}</div>
-                <button className="p-2 bg-white/5 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors"><Share2 size={14} /></button>
+            <div className="font-mono text-[10px] text-gray-500 uppercase">
+              NODE_ID: {startup.id.split('-')[0]}
             </div>
         </div>
 
-        {/* --- MAIN COMMAND CENTER GRID --- */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 fade-in items-stretch">
-            
-            {/* === COL 1: IDENTITY & STATS (4 Cols) === */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-4 items-stretch fade-in">
             <div className="lg:col-span-4 flex flex-col gap-4">
-                <div className="bg-[#0A0A0A] border border-white/10 p-6 rounded-2xl relative overflow-hidden flex-1 flex flex-col justify-between group">
+                <div className="bg-[#0A0A0A] border border-white/10 p-6 rounded-xl flex-1 flex flex-col justify-between">
                     <div>
-                        <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity"><ShieldCheck size={100} className="text-ethaum-green" /></div>
-                        
-                        <div className="w-16 h-16 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center text-3xl font-black text-white mb-6 shadow-inner">
-                            {startup.name.charAt(0)}
-                        </div>
-                        
-                        <h1 className="text-4xl font-black text-white tracking-tighter leading-none mb-2">{startup.name}</h1>
-                        <div className="flex items-center gap-2 mb-6">
-                            <span className="w-1.5 h-1.5 bg-ethaum-green rounded-full animate-pulse"></span>
-                            <span className="text-[10px] font-bold text-ethaum-green uppercase tracking-widest">Verified & Active</span>
-                        </div>
-
-                        <p className="text-sm text-gray-400 font-medium leading-relaxed mb-6 border-l-2 border-white/10 pl-4">
-                            {startup.tagline}
-                        </p>
+                      <div className="w-10 h-10 bg-white/5 border border-white/10 rounded flex items-center justify-center text-lg font-bold mb-4">
+                        {startup.name.charAt(0)}
+                      </div>
+                      <h1 className="text-2xl font-black tracking-tighter uppercase mb-2">{startup.name}</h1>
+                      <p className="text-gray-500 text-xs leading-normal mb-6 uppercase tracking-tight">{startup.tagline}</p>
                     </div>
-
-                    <div className="grid grid-cols-2 gap-3 mt-auto">
-                        <button 
-                            onClick={handleRequestPilot}
-                            className="col-span-2 bg-ethaum-green text-black font-bold text-xs uppercase tracking-widest py-4 rounded-lg hover:bg-white transition-all shadow-[0_0_20px_rgba(204,255,0,0.2)] flex items-center justify-center gap-2"
-                        >
-                           <Zap size={14} /> Request Pilot
-                        </button>
-                        <a href={startup.website_url} target="_blank" rel="noreferrer" className="col-span-2 bg-black text-white border border-white/10 font-bold text-xs uppercase tracking-widest py-3 rounded-lg hover:bg-white/5 transition-all flex items-center justify-center gap-2">
-                           <Globe size={14} /> Website
-                        </a>
+                    
+                    <div className="space-y-2">
+                        {!requestStatus ? (
+                          <button onClick={handleRequestPilot} className="w-full bg-white text-black font-bold text-[10px] uppercase tracking-widest py-3 rounded hover:bg-ethaum-green transition-all flex items-center justify-center gap-2">
+                            <Zap size={12} fill="currentColor" /> Request Access
+                          </button>
+                        ) : (
+                          <div className={`w-full bg-white/5 border border-white/10 font-bold text-[10px] uppercase tracking-widest py-3 rounded flex items-center justify-center gap-2 ${
+                            requestStatus === 'approved' ? 'text-ethaum-green border-ethaum-green/20' : 'text-yellow-500'
+                          }`}>
+                             {requestStatus === 'pending' ? 'Signal Pending' : requestStatus === 'approved' ? 'Vault Unlocked' : 'Access Restricted'}
+                          </div>
+                        )}
+                        {startup.website_url && (
+                          <a href={startup.website_url} target="_blank" rel="noreferrer" className="w-full border border-white/10 text-white font-bold text-[10px] uppercase tracking-widest py-3 rounded hover:bg-white/5 transition-all flex items-center justify-center gap-2">
+                            <Globe size={12} /> Terminal
+                          </a>
+                        )}
                     </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 h-32">
-                    <div className="bg-[#0A0A0A] border border-white/10 p-5 rounded-2xl flex flex-col justify-center relative overflow-hidden">
-                        <div className="absolute right-2 top-2 opacity-20"><Layers size={20} className="text-gray-500" /></div>
-                        <div className="text-[9px] text-gray-500 uppercase tracking-widest font-bold mb-1">Stage</div>
-                        <div className="text-xl font-black text-white">{startup.stage}</div>
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-[#0A0A0A] border border-white/10 p-4 rounded-xl">
+                      <div className="text-[9px] text-gray-600 font-bold uppercase mb-1 tracking-widest">Stage</div>
+                      <div className="text-sm font-black uppercase tracking-tight">{startup.stage || "Seed"}</div>
                     </div>
-                    <div className="bg-[#0A0A0A] border border-white/10 p-5 rounded-2xl flex flex-col justify-center relative overflow-hidden">
-                        <div className="absolute right-2 top-2 opacity-20"><DollarSign size={20} className="text-gray-500" /></div>
-                        <div className="text-[9px] text-gray-500 uppercase tracking-widest font-bold mb-1">ARR</div>
-                        <div className="text-xl font-black text-white">{startup.arr_range}</div>
+                    <div className="bg-[#0A0A0A] border border-white/10 p-4 rounded-xl">
+                      <div className="text-[9px] text-gray-600 font-bold uppercase mb-1 tracking-widest">Capital</div>
+                      <div className="text-sm font-black uppercase tracking-tight">{startup.arr_range || "N/A"}</div>
                     </div>
                 </div>
             </div>
 
-            {/* === COL 2: INTELLIGENCE & VAULT (8 Cols) === */}
-            <div className="lg:col-span-8 flex flex-col gap-4 h-full">
-                <div className="bg-[#0A0A0A] border border-white/10 p-8 rounded-2xl">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="p-1.5 bg-white/5 rounded text-ethaum-green"><Cpu size={16} /></div>
-                        <h3 className="text-xs font-bold text-white uppercase tracking-widest">Technology Briefing</h3>
+            <div className="lg:col-span-8 flex flex-col gap-4">
+                <div className="bg-[#0A0A0A] border border-white/10 p-8 rounded-xl flex-1 flex flex-col justify-center">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Cpu size={14} className="text-ethaum-green" />
+                      <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Technology Briefing</h3>
                     </div>
-                    <p className="text-gray-300 text-sm md:text-base leading-7 font-light">
-                        {startup.description || "Detailed technical breakdown restricted. Contact founder for architecture review."}
+                    <p className="text-gray-300 text-lg leading-relaxed font-medium">
+                      {startup.description}
                     </p>
                 </div>
 
-                <div className="flex-1 min-h-[350px]">
-                    <VaultDoor className="h-full">
-                        <div className="p-8 h-full flex flex-col justify-center">
-                             
-                             <div className="flex justify-between items-center mb-6">
-                                <div className="flex items-center gap-3">
-                                    <Lock size={18} className="text-ethaum-green" />
-                                    <h3 className="text-xs font-black text-white uppercase tracking-widest">Due Diligence Vault</h3>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                   <div className="w-1.5 h-1.5 rounded-full bg-ethaum-green animate-pulse"></div>
-                                   <div className="text-[9px] text-ethaum-green font-bold uppercase tracking-wider">Secure Connection</div>
-                                </div>
-                             </div>
-
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1">
-                                <div className="group flex items-center justify-between p-4 bg-black border border-white/10 rounded-xl hover:border-ethaum-green/50 cursor-pointer transition-all h-full">
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-3 bg-white/5 rounded-lg text-gray-400 group-hover:text-ethaum-green transition-colors"><FileText size={20} /></div>
-                                        <div>
-                                            <div className="text-sm font-bold text-white">Pitch_Deck_v4.pdf</div>
-                                            <div className="text-[10px] text-gray-500 mt-0.5">4.2 MB • Verified Source</div>
+                <div className="min-h-[280px] flex-1">
+                    <VaultDoor isUnlocked={requestStatus === 'approved'} className="h-full rounded-xl">
+                        {requestStatus === 'approved' ? (
+                          <div className="w-full h-full flex flex-col items-center justify-center p-8 bg-black/40 backdrop-blur-sm">
+                              <h2 className="text-xs font-bold text-ethaum-green uppercase tracking-[0.3em] mb-6">Secured Artifacts Unlocked</h2>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full max-w-lg">
+                                  {[
+                                      { name: 'Pitch_Deck.pdf', url: startup.pitch_deck_url },
+                                      { name: 'Technical_Docs', url: startup.technical_docs_url },
+                                      { name: 'Financial_Model', url: startup.financials_url },
+                                      { name: 'Compliance_Log', url: startup.compliance_url }
+                                  ].map(doc => doc.url && (
+                                    <a key={doc.name} href={doc.url} target="_blank" rel="noreferrer" className="p-3 bg-white/5 border border-white/10 rounded flex items-center justify-between hover:bg-ethaum-green hover:text-black transition-all group">
+                                        <div className="flex items-center gap-3">
+                                          <FileText size={14}/>
+                                          <span className="text-[9px] font-bold uppercase tracking-widest">{doc.name}</span>
                                         </div>
-                                    </div>
-                                    <ArrowUpRight size={16} className="text-gray-600 group-hover:text-ethaum-green transition-colors" />
-                                </div>
-
-                                <div className="group flex items-center justify-between p-4 bg-black border border-white/10 rounded-xl hover:border-ethaum-green/50 cursor-pointer transition-all h-full">
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-3 bg-white/5 rounded-lg text-gray-400 group-hover:text-ethaum-green transition-colors"><FileText size={20} /></div>
-                                        <div>
-                                            <div className="text-sm font-bold text-white">Tech_Review.pdf</div>
-                                            <div className="text-[10px] text-gray-500 mt-0.5">8.1 MB • Validated</div>
-                                        </div>
-                                    </div>
-                                    <ArrowUpRight size={16} className="text-gray-600 group-hover:text-ethaum-green transition-colors" />
-                                </div>
-                             </div>
-
-                             <div className="mt-6 pt-4 border-t border-white/5 flex justify-between items-center text-[9px] text-gray-500 uppercase tracking-widest">
-                                <span>Session ID: {startup.id.slice(0,8).toUpperCase()}</span>
-                                <span>Access Logged & Monitored</span>
-                             </div>
-                        </div>
+                                        <ArrowUpRight size={12} />
+                                    </a>
+                                  ))}
+                              </div>
+                          </div>
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center">
+                              <Lock size={20} className="text-gray-800 mb-4" />
+                              <h3 className="text-[10px] font-bold uppercase tracking-widest mb-1">Vault Encrypted</h3>
+                              <p className="text-gray-700 text-[9px] max-w-[200px] uppercase">Verify credentials to decrypt intelligence.</p>
+                          </div>
+                        )}
                     </VaultDoor>
                 </div>
             </div>
         </div>
+
+        <div className="w-full fade-in">
+            <div className="bg-[#0A0A0A] border border-white/10 rounded-xl overflow-hidden">
+                <div className="px-6 py-4 border-b border-white/10 flex justify-between items-center">
+                    <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Market Validation</h3>
+                    <div className="text-[9px] font-mono text-gray-600 uppercase">{reviews.length} Logs Detected</div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 divide-x divide-white/10">
+                    {reviews.length > 0 ? reviews.map(review => (
+                        <div key={review.id} className="p-6 hover:bg-white/[0.02] transition-colors">
+                            <div className="flex justify-between items-start mb-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 bg-white/5 border border-white/10 rounded flex items-center justify-center text-[10px] font-bold text-ethaum-green">
+                                      {review.reviewer?.full_name.charAt(0)}
+                                    </div>
+                                    <div>
+                                      <div className="text-[10px] font-bold uppercase">{review.reviewer?.full_name}</div>
+                                      <div className="text-[9px] text-gray-600 font-bold uppercase tracking-tighter">{review.reviewer?.role}</div>
+                                    </div>
+                                </div>
+                                <div className="flex gap-0.5 text-ethaum-green/50">
+                                    {[...Array(review.rating)].map((_, i) => <Star key={i} size={8} fill="currentColor" />)}
+                                </div>
+                            </div>
+                            <p className="text-gray-400 text-xs leading-relaxed font-medium tracking-tight italic">"{review.content}"</p>
+                        </div>
+                    )) : (
+                      <div className="col-span-2 py-12 text-center opacity-30">
+                        <span className="text-[9px] font-bold uppercase tracking-[0.4em]">No validated logs found</span>
+                      </div>
+                    )}
+                </div>
+            </div>
+        </div>
+
+        {startup.deal_offer && (
+            <div className="mt-4 bg-[#0A0A0A] border border-ethaum-green/30 px-6 py-4 rounded-xl flex items-center justify-between fade-in">
+                <div className="flex items-center gap-4">
+                    <div className="text-ethaum-green text-[10px] font-bold uppercase tracking-widest">Enterprise Offer:</div>
+                    <div className="text-sm font-black uppercase tracking-tight">{startup.deal_offer}</div>
+                </div>
+                <ShieldCheck className="text-ethaum-green opacity-40" size={18} />
+            </div>
+        )}
       </div>
     </>
   );

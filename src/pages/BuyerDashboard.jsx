@@ -3,8 +3,11 @@ import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabaseClient";
 import Navbar from "../components/NavBar";
 import Loader from "../components/Loader";
-import ChatWindow from "../components/ChatWindow"; // Import Chat
-import { BarChart3, Search, Clock, CheckCircle2, XCircle, TrendingUp, MessageCircle } from "lucide-react";
+import ChatWindow from "../components/ChatWindow";
+import { 
+  BarChart3, Search, Clock, CheckCircle2, XCircle, 
+  TrendingUp, MessageCircle, Zap, Sparkles 
+} from "lucide-react";
 import gsap from "gsap";
 import { useNavigate } from "react-router-dom";
 
@@ -15,8 +18,8 @@ export default function BuyerDashboard() {
   const [activeTab, setActiveTab] = useState("watchlist"); 
   const [watchlist, setWatchlist] = useState([]);
   const [requests, setRequests] = useState([]);
-  
-  // Chat State
+  const [searchTerm, setSearchTerm] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
   const [activeChatRequest, setActiveChatRequest] = useState(null);
   
   const containerRef = useRef(null);
@@ -27,164 +30,159 @@ export default function BuyerDashboard() {
 
   const fetchBuyerData = async () => {
     try {
-      // 1. Fetch Watchlist
-      const { data: watchData, error: watchError } = await supabase
+      // 1. Fetch manually upvoted startups
+      const { data: watchData } = await supabase
         .from('startup_upvotes')
         .select(`startup_id, startups ( * )`)
         .eq('user_id', user.id);
+      
+      const upvoted = watchData?.map(item => item.startups).filter(Boolean) || [];
 
-      if (watchError) throw watchError;
-      setWatchlist(watchData.map(item => item.startups));
-
-      // 2. Fetch Pilot Requests (With startup details)
-      // Note: This join works because Pilot -> Startup is a valid FK
-      const { data: reqData, error: reqError } = await supabase
+      // 2. Fetch all pilot requests with startup details
+      const { data: reqData } = await supabase
         .from('pilot_requests')
-        .select(`
-          *,
-          startups ( name, stage, arr_range, logo_url )
-        `)
+        .select(`*, startups ( * )`)
         .eq('buyer_id', user.id);
+      
+      const allRequests = reqData || [];
+      setRequests(allRequests);
 
-      if (reqError) throw reqError;
-      setRequests(reqData);
-
+      // 3. Logic Fix: Extract startups from APPROVED requests
+      const approvedStartups = allRequests
+        .filter(r => r.status === 'approved' && r.startups)
+        .map(r => r.startups);
+      
+      // 4. Combine both lists and remove duplicates by ID
+      const combined = [...upvoted, ...approvedStartups];
+      const uniqueWatchlist = Array.from(
+        new Map(combined.map(item => [item.id, item])).values()
+      );
+      
+      setWatchlist(uniqueWatchlist);
     } catch (error) {
-      console.error("Error fetching dashboard:", error);
+      console.error("Data Fetch Error:", error);
     } finally {
-      setTimeout(() => setLoading(false), 1200);
+      setTimeout(() => setLoading(false), 800);
     }
   };
 
-  // --- ANIMATIONS ---
+  const handleSemanticSearch = (e) => {
+    e.preventDefault();
+    if (!searchTerm) { fetchBuyerData(); return; }
+    setIsSearching(true);
+    
+    const term = searchTerm.toLowerCase();
+    if (activeTab === 'watchlist') {
+      setWatchlist(prev => prev.filter(s => 
+        s.name.toLowerCase().includes(term) || 
+        s.tagline?.toLowerCase().includes(term)
+      ));
+    } else {
+      setRequests(prev => prev.filter(r => 
+        r.startups?.name?.toLowerCase().includes(term)
+      ));
+    }
+    setIsSearching(false);
+  };
+
   useEffect(() => {
     if (!loading) {
-      const ctx = gsap.context(() => {
-        gsap.from(".dash-item", {
-          y: 20, opacity: 0, duration: 0.6, stagger: 0.1, ease: "power2.out"
-        });
-      }, containerRef);
-      return () => ctx.revert();
+      gsap.fromTo(".dash-item", { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.4, stagger: 0.05 });
     }
   }, [loading, activeTab]);
 
-  if (loading) return <Loader onComplete={() => {}} />;
+  if (loading) return <Loader />;
 
   return (
     <>
       <Navbar />
-      
-      {/* CHAT MODAL */}
-      {activeChatRequest && (
-        <ChatWindow 
-            request={activeChatRequest} 
-            currentUser={user} 
-            onClose={() => setActiveChatRequest(null)} 
-        />
-      )}
+      {activeChatRequest && <ChatWindow request={activeChatRequest} currentUser={user} onClose={() => setActiveChatRequest(null)} />}
 
-      <div ref={containerRef} className="min-h-screen w-full pt-28 px-6 md:px-12 pb-20 relative z-10 font-sans flex flex-col">
+      <div className="min-h-screen w-full pt-24 px-6 md:px-12 lg:px-20 pb-12 bg-black text-white font-sans selection:bg-ethaum-green selection:text-black">
         
         {/* HEADER */}
-        <div className="dash-item flex flex-col md:flex-row justify-between items-end mb-12 border-b border-white/5 pb-8">
+        <div className="dash-item flex flex-col md:flex-row justify-between items-end mb-8 border-b border-white/10 pb-6">
           <div>
             <div className="flex items-center gap-2 mb-2">
-                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
-                <span className="text-[10px] font-bold tracking-[0.2em] text-gray-400 uppercase">Enterprise Console</span>
+                <div className="w-1.5 h-1.5 rounded-full bg-ethaum-green animate-pulse"></div>
+                <span className="text-[10px] font-bold tracking-widest text-gray-500 uppercase">Buyer Terminal</span>
             </div>
-            <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight">
-              Deal Flow<span className="text-blue-500">.</span>
+            <h1 className="text-3xl font-black text-white tracking-tighter uppercase">
+              Deal Flow<span className="text-ethaum-green">.</span>
             </h1>
           </div>
           
-          <div className="flex gap-6 mt-6 md:mt-0">
+          <div className="flex gap-8 mt-6 md:mt-0">
              <div className="text-right">
-                <div className="text-3xl font-black text-white">{watchlist.length}</div>
-                <div className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Watchlist</div>
+                <div className="text-2xl font-black text-white tracking-tighter">{watchlist.length}</div>
+                <div className="text-[9px] text-gray-600 uppercase tracking-widest font-bold">Watchlist</div>
              </div>
-             <div className="w-px h-10 bg-white/10"></div>
              <div className="text-right">
-                <div className="text-3xl font-black text-white">{requests.length}</div>
-                <div className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Active Pilots</div>
+                <div className="text-2xl font-black text-white tracking-tighter">{requests.length}</div>
+                <div className="text-[9px] text-gray-600 uppercase tracking-widest font-bold">Total Pilots</div>
              </div>
           </div>
         </div>
 
-        {/* CONTROLS */}
-        <div className="dash-item flex items-center gap-6 mb-8">
-            <div className="flex bg-white/5 p-1 rounded-lg border border-white/10">
-                <button 
-                  onClick={() => setActiveTab("watchlist")}
-                  className={`px-6 py-2 rounded-md text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'watchlist' ? 'bg-blue-500 text-black shadow-[0_0_20px_rgba(59,130,246,0.5)]' : 'text-gray-400 hover:text-white'}`}
-                >
-                    Watchlist
-                </button>
-                <button 
-                  onClick={() => setActiveTab("pilots")}
-                  className={`px-6 py-2 rounded-md text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'pilots' ? 'bg-blue-500 text-black shadow-[0_0_20px_rgba(59,130,246,0.5)]' : 'text-gray-400 hover:text-white'}`}
-                >
-                    Pilot Requests
-                </button>
+        {/* SEARCH & TABS */}
+        <div className="dash-item flex flex-col md:flex-row items-center gap-4 mb-8">
+            <div className="flex bg-[#0A0A0A] p-1 rounded-lg border border-white/10">
+                <button onClick={() => setActiveTab("watchlist")} className={`px-6 py-2 rounded text-[10px] font-bold uppercase tracking-widest transition-all ${activeTab === 'watchlist' ? 'bg-white text-black' : 'text-gray-500 hover:text-white'}`}>Watchlist</button>
+                <button onClick={() => setActiveTab("pilots")} className={`px-6 py-2 rounded text-[10px] font-bold uppercase tracking-widest transition-all ${activeTab === 'pilots' ? 'bg-white text-black' : 'text-gray-500 hover:text-white'}`}>Pilot Requests</button>
             </div>
             
-            <div className="hidden md:flex items-center gap-3 ml-auto opacity-50">
-                <Search size={16} className="text-gray-400" />
-                <span className="text-xs text-gray-500 font-mono">SEARCH DEALS...</span>
-            </div>
+            <form onSubmit={handleSemanticSearch} className="relative w-full md:max-w-md ml-auto">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-600" size={14} />
+                <input 
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="AI SEMANTIC SEARCH..." 
+                  className="w-full bg-[#0A0A0A] border border-white/10 rounded-xl py-3 pl-10 pr-10 text-[10px] font-mono text-white outline-none focus:border-ethaum-green transition-all uppercase"
+                />
+                <button type="submit" className="absolute right-3 top-1/2 -translate-y-1/2 text-ethaum-green">
+                  {isSearching ? <Sparkles className="animate-spin" size={14} /> : <Zap size={14} />}
+                </button>
+            </form>
         </div>
 
-        {/* --- TAB CONTENT: WATCHLIST --- */}
+        {/* WATCHLIST GRID */}
         {activeTab === 'watchlist' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {watchlist.map(startup => (
-                    <div key={startup.id} onClick={() => navigate(`/startup/${startup.id}`)} className="dash-item group bg-[#0A0A0A] border border-white/10 p-6 rounded-2xl hover:border-blue-500/50 transition-all cursor-pointer">
-                        <div className="flex justify-between items-start mb-6">
-                            <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center text-xl font-bold text-white">
-                                {startup.name.charAt(0)}
-                            </div>
-                            <div className="px-2 py-1 bg-white/5 rounded text-[10px] text-gray-400 font-bold uppercase">{startup.stage}</div>
+                {watchlist.length > 0 ? watchlist.map(startup => (
+                    <div key={startup.id} onClick={() => navigate(`/startup/${startup.id}`)} className="dash-item group bg-[#0A0A0A] border border-white/10 p-6 rounded-xl hover:border-ethaum-green transition-all cursor-pointer">
+                        <div className="flex justify-between items-start mb-4">
+                            <div className="w-10 h-10 bg-white/5 border border-white/10 rounded flex items-center justify-center text-lg font-black text-white uppercase">{startup.name?.charAt(0)}</div>
+                            <div className="px-2 py-1 bg-white/5 border border-white/10 rounded text-[9px] text-gray-500 font-bold uppercase">{startup.stage}</div>
                         </div>
-                        <h3 className="text-xl font-bold text-white mb-2 group-hover:text-blue-400 transition-colors">{startup.name}</h3>
-                        <p className="text-sm text-gray-500 line-clamp-2 mb-6 h-10">{startup.tagline}</p>
-                        <div className="flex items-center gap-2 text-[10px] text-gray-400 uppercase tracking-widest border-t border-white/5 pt-4">
-                            <TrendingUp size={12} className="text-blue-500" /> High Velocity
+                        <h3 className="text-lg font-black text-white mb-2 uppercase tracking-tight group-hover:text-ethaum-green">{startup.name}</h3>
+                        <p className="text-[11px] text-gray-500 line-clamp-2 mb-6 h-8 font-medium uppercase tracking-tight">{startup.tagline}</p>
+                        <div className="flex items-center gap-2 text-[9px] text-gray-600 uppercase tracking-widest border-t border-white/5 pt-4 font-bold">
+                            <TrendingUp size={12} className="text-ethaum-green" /> Analytics Active
                         </div>
                     </div>
-                ))}
-                
-                {watchlist.length === 0 && (
-                   <div className="dash-item col-span-full py-20 text-center border border-dashed border-white/10 rounded-2xl">
-                      <p className="text-gray-500 text-sm mb-4">No startups in watchlist.</p>
-                      <button onClick={() => navigate('/')} className="text-blue-400 text-xs font-bold uppercase tracking-widest hover:underline">Explore Feed</button>
-                   </div>
+                )) : (
+                  <div className="col-span-full py-20 text-center border border-dashed border-white/10 rounded-xl opacity-30">
+                     <span className="text-[10px] font-bold uppercase tracking-widest">Vault Empty</span>
+                  </div>
                 )}
             </div>
         )}
 
-        {/* --- TAB CONTENT: PILOTS --- */}
+        {/* PILOT LIST */}
         {activeTab === 'pilots' && (
-            <div className="flex flex-col gap-3">
-                <div className="dash-item grid grid-cols-12 px-6 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest border-b border-white/5">
-                    <div className="col-span-4">Startup</div>
-                    <div className="col-span-2">Stage</div>
-                    <div className="col-span-3">Status</div>
-                    <div className="col-span-3 text-right">Actions</div>
-                </div>
-
-                {requests.map(req => (
-                    <div key={req.id} className="dash-item grid grid-cols-12 px-6 py-4 bg-[#0A0A0A] border border-white/10 rounded-xl items-center hover:bg-white/5 transition-colors">
+            <div className="flex flex-col gap-2">
+                {requests.length > 0 ? requests.map(req => (
+                    <div key={req.id} className="dash-item grid grid-cols-12 px-6 py-4 bg-[#0A0A0A] border border-white/10 rounded-xl items-center hover:bg-white/[0.02] transition-colors">
                         <div className="col-span-4 flex items-center gap-4">
-                            <div className="w-8 h-8 bg-white/5 rounded-lg flex items-center justify-center font-bold text-white text-xs">
-                                {req.startups.name.charAt(0)}
-                            </div>
-                            <span className="text-sm font-bold text-white">{req.startups.name}</span>
+                            <div className="w-8 h-8 bg-white/5 border border-white/10 rounded flex items-center justify-center font-bold text-white text-[10px] uppercase">{req.startups?.name?.charAt(0)}</div>
+                            <span className="text-xs font-bold text-white uppercase tracking-tight">{req.startups?.name}</span>
                         </div>
-                        <div className="col-span-2 text-xs text-gray-400 font-medium">{req.startups.stage}</div>
+                        <div className="col-span-2 text-[10px] text-gray-600 font-bold uppercase">{req.startups?.stage}</div>
                         <div className="col-span-3">
-                            <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide
-                                ${req.status === 'pending' ? 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20' : ''}
-                                ${req.status === 'approved' ? 'bg-green-500/10 text-green-500 border border-green-500/20' : ''}
-                                ${req.status === 'rejected' ? 'bg-red-500/10 text-red-500 border border-red-500/20' : ''}
+                            <span className={`inline-flex items-center gap-2 px-3 py-1 rounded text-[9px] font-bold uppercase tracking-widest border
+                                ${req.status === 'pending' ? 'bg-yellow-500/5 text-yellow-500 border-yellow-500/20' : ''}
+                                ${req.status === 'approved' ? 'bg-ethaum-green/5 text-ethaum-green border-ethaum-green/20' : ''}
+                                ${req.status === 'rejected' ? 'bg-red-500/5 text-red-500 border-red-500/20' : ''}
                             `}>
                                 {req.status === 'pending' && <Clock size={10} />}
                                 {req.status === 'approved' && <CheckCircle2 size={10} />}
@@ -193,25 +191,19 @@ export default function BuyerDashboard() {
                             </span>
                         </div>
                         <div className="col-span-3 text-right flex justify-end gap-2">
-                             <button 
-                                onClick={() => setActiveChatRequest(req)} 
-                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-colors text-xs font-bold uppercase"
-                             >
-                                <MessageCircle size={14} /> Chat
+                             <button onClick={() => setActiveChatRequest(req)} className="px-4 py-2 rounded border border-white/10 text-gray-500 hover:text-white hover:bg-white/5 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2">
+                                <MessageCircle size={12} /> Chat
                              </button>
+                             <button onClick={() => navigate(`/startup/${req.startup_id}`)} className="px-4 py-2 rounded bg-white text-black text-[10px] font-bold uppercase tracking-widest hover:bg-ethaum-green transition-all">Vault</button>
                         </div>
                     </div>
-                ))}
-                
-                {requests.length === 0 && (
-                   <div className="dash-item py-20 text-center border border-dashed border-white/10 rounded-2xl">
-                      <p className="text-gray-500 text-sm mb-4">No active pilot requests.</p>
-                      <button onClick={() => navigate('/')} className="text-blue-400 text-xs font-bold uppercase tracking-widest hover:underline">Find Technology</button>
-                   </div>
+                )) : (
+                  <div className="py-20 text-center border border-dashed border-white/10 rounded-xl opacity-30">
+                     <span className="text-[10px] font-bold uppercase tracking-widest">No Active Pilots</span>
+                  </div>
                 )}
             </div>
         )}
-
       </div>
     </>
   );
