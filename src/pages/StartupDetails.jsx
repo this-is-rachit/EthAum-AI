@@ -3,19 +3,19 @@ import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import Navbar from "../components/NavBar";
-import Loader from "../components/Loader";
+// REMOVED: import Loader from "../components/Loader";
 import VaultDoor from "../components/VaultDoor";
 import { 
   ArrowLeft, Globe, ShieldCheck, Zap, Layers, 
   Lock, FileText, ArrowUpRight, 
-  Cpu, Star, Clock
+  Cpu, Star, Clock, AlertCircle, Loader2 // ADDED Loader2
 } from "lucide-react";
 import gsap from "gsap";
 
 export default function StartupDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, role } = useAuth(); 
   
   const [startup, setStartup] = useState(null);
   const [reviews, setReviews] = useState([]);
@@ -30,7 +30,12 @@ export default function StartupDetails() {
           const { data: sData, error: sError } = await supabase.from('startups').select('*').eq('id', id).single();
           if (sError) throw sError;
           
-          if (user) {
+          if (user && sData.founder_id === user.id) {
+             navigate("/founder/dashboard");
+             return null;
+          }
+
+          if (user && role === 'buyer') {
             const { data: rStatus } = await supabase.from('pilot_requests').select('status').eq('startup_id', id).eq('buyer_id', user.id).maybeSingle();
             if (rStatus) setRequestStatus(rStatus.status);
           }
@@ -50,12 +55,18 @@ export default function StartupDetails() {
 
       try {
         const [_, result] = await Promise.all([minLoadTime, dataPromise]);
-        setStartup(result.startup);
-        setReviews(result.reviews);
-      } catch (error) { navigate("/"); }
+        if (result) {
+            setStartup(result.startup);
+            setReviews(result.reviews);
+        }
+      } catch (error) { 
+          if (!window.location.pathname.includes('founder/dashboard')) navigate("/"); 
+      } finally {
+          setShowLoader(false);
+      }
     };
     loadData();
-  }, [id, navigate, user]);
+  }, [id, navigate, user, role]);
 
   useEffect(() => {
     if (!showLoader && startup) {
@@ -65,6 +76,12 @@ export default function StartupDetails() {
 
   const handleRequestPilot = async () => {
     if (!user) { navigate("/auth?type=buyer&mode=login"); return; }
+    
+    if (role === 'founder') {
+        alert("Restricted: Founder accounts cannot request pilots.");
+        return;
+    }
+
     try {
         const { error } = await supabase.from('pilot_requests').insert({ startup_id: startup.id, buyer_id: user.id, status: 'pending' });
         if (error) {
@@ -74,7 +91,13 @@ export default function StartupDetails() {
     } catch (err) { alert("Failed to send request."); }
   };
 
-  if (showLoader) return <Loader onComplete={() => setShowLoader(false)} />;
+  // --- REPLACED LOADER WITH SIMPLE SPINNER ---
+  if (showLoader) return (
+    <div className="min-h-screen bg-black flex items-center justify-center">
+        <Loader2 className="animate-spin text-ethaum-green" size={40} />
+    </div>
+  );
+  
   if (!startup) return null;
 
   return (
@@ -103,7 +126,11 @@ export default function StartupDetails() {
                     </div>
                     
                     <div className="space-y-2">
-                        {!requestStatus ? (
+                        {role === 'founder' ? (
+                            <div className="w-full bg-white/5 border border-white/10 text-gray-500 font-bold text-[10px] uppercase tracking-widest py-3 rounded flex items-center justify-center gap-2 cursor-not-allowed">
+                                <AlertCircle size={12} /> Founder View Only
+                            </div>
+                        ) : !requestStatus ? (
                           <button onClick={handleRequestPilot} className="w-full bg-white text-black font-bold text-[10px] uppercase tracking-widest py-3 rounded hover:bg-ethaum-green transition-all flex items-center justify-center gap-2">
                             <Zap size={12} fill="currentColor" /> Request Access
                           </button>
@@ -114,6 +141,7 @@ export default function StartupDetails() {
                              {requestStatus === 'pending' ? 'Signal Pending' : requestStatus === 'approved' ? 'Vault Unlocked' : 'Access Restricted'}
                           </div>
                         )}
+                        
                         {startup.website_url && (
                           <a href={startup.website_url} target="_blank" rel="noreferrer" className="w-full border border-white/10 text-white font-bold text-[10px] uppercase tracking-widest py-3 rounded hover:bg-white/5 transition-all flex items-center justify-center gap-2">
                             <Globe size={12} /> Terminal

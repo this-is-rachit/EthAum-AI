@@ -2,42 +2,45 @@ import OpenAI from "openai";
 
 const openai = new OpenAI({
   apiKey: import.meta.env.VITE_OPENAI_API_KEY,
-  dangerouslyAllowBrowser: true 
+  dangerouslyAllowBrowser: true, 
 });
 
-export async function generateLaunchAssets(context) {
+export const generateLaunchAssets = async (description, websiteUrl = "") => {
+  if (!description) return null;
+
+  const prompt = `
+    Analyze this startup based on the description: "${description}" 
+    ${websiteUrl ? `and their website URL: ${websiteUrl}` : ""}
+    
+    You are an expert venture capital analyst. Generate 3 specific assets for a "Product Hunt style" launch page but for B2B Enterprises.
+    
+    1. A punchy, 5-7 word tagline (cyberpunk/futuristic tone).
+    2. A compelling "Deal Offer" for enterprise pilots (e.g. "3-Month PoC @ 50% Off").
+    3. An elaborate, professional description (2-3 sentences) suitable for a Series A/B startup investor memo.
+
+    Return JSON format: { "tagline": "...", "offer": "...", "elaborated_description": "..." }
+  `;
+
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: "You are a world-class startup copywriter. Return ONLY a valid JSON object with the keys 'tagline' and 'pitch'. Ensure the pitch is 2-3 sentences max."
-        },
-        {
-          role: "user",
-          content: `Convert this rough description into high-converting launch assets: ${context}`
-        }
-      ],
-      response_format: { type: "json_object" }
+      model: "gpt-3.5-turbo",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7,
     });
 
-    return JSON.parse(response.choices[0].message.content);
+    const content = response.choices[0].message.content;
+    try {
+        return JSON.parse(content);
+    } catch (e) {
+        // Fallback if AI doesn't return strict JSON
+        return { 
+            tagline: "AI Analysis Failed - Manual Input Required", 
+            offer: "Standard Pilot Access",
+            elaborated_description: description 
+        };
+    }
   } catch (error) {
     console.error("OpenAI Error:", error);
-    throw new Error("AI failed to generate assets. Check your OpenAI quota/key.");
+    throw error;
   }
-}
-
-export async function getEmbedding(text) {
-  try {
-    const response = await openai.embeddings.create({
-      model: "text-embedding-3-small",
-      input: text,
-    });
-    return response.data[0].embedding;
-  } catch (error) {
-    console.error("Embedding Error:", error);
-    return null;
-  }
-}
+};

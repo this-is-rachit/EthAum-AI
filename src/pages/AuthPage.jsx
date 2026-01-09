@@ -2,7 +2,7 @@ import { useState, useRef, useLayoutEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { AmbientBackground } from "../components/UIEffects";
-import { ArrowLeft, Rocket, Building2, ArrowRight, Loader2, Lock, Mail, Key, User, Globe } from "lucide-react";
+import { ArrowLeft, Rocket, Building2, ArrowRight, Loader2, Lock, Mail, Key, User, Globe, HelpCircle } from "lucide-react";
 import gsap from "gsap";
 
 export default function AuthPage() {
@@ -17,9 +17,10 @@ export default function AuthPage() {
   const initialMode = searchParams.get("mode") === "login" ? "login" : "signup";
 
   const [activeTab, setActiveTab] = useState(initialType);
-  const [authMode, setAuthMode] = useState(initialMode);
+  const [authMode, setAuthMode] = useState(initialMode); // 'login', 'signup', 'forgot'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [successMsg, setSuccessMsg] = useState(null);
 
   // Form Fields
   const [fullName, setFullName] = useState("");
@@ -30,57 +31,95 @@ export default function AuthPage() {
   // --- ANIMATIONS ---
   useLayoutEffect(() => {
     const ctx = gsap.context(() => {
-      // 1. Entrance Sequence
+      // Reset animations on mode switch
       const tl = gsap.timeline();
       
-      tl.from(".auth-card", { 
-        y: 60, 
-        opacity: 0, 
-        duration: 0.8, 
-        ease: "power3.out" 
-      })
-      .from(".visual-panel-content", { 
-        x: -30, 
-        opacity: 0, 
-        duration: 0.6, 
-        ease: "power2.out" 
-      }, "-=0.4")
-      .from(".form-element", { 
-        y: 15, 
-        opacity: 0, 
-        stagger: 0.08, 
-        duration: 0.5, 
-        ease: "back.out(1.5)" 
-      }, "-=0.4");
+      tl.fromTo(".auth-card", 
+        { y: 30, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" }
+      )
+      .fromTo(".visual-panel-content", 
+        { x: -20, opacity: 0 }, 
+        { x: 0, opacity: 1, duration: 0.5, ease: "power2.out" }, 
+        "-=0.3"
+      )
+      .fromTo(".form-element", 
+        { y: 10, opacity: 0 }, 
+        { y: 0, opacity: 1, stagger: 0.05, duration: 0.4, ease: "back.out(1.2)" }, 
+        "-=0.3"
+      );
 
     }, containerRef);
     return () => ctx.revert();
   }, [authMode]);
 
   // --- HANDLERS ---
+
+  // 1. FORGOT PASSWORD HANDLER
+  const handleForgot = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setSuccessMsg(null);
+
+    try {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: `${window.location.origin}/auth/update-password`,
+        });
+        if (error) throw error;
+        setSuccessMsg("Recovery signal broadcasted. Check your inbox.");
+    } catch (err) {
+        setError(err.message);
+    } finally {
+        setLoading(false);
+    }
+  };
+
+  // 2. AUTH HANDLER (Robust Logic + Metadata Fix)
   const handleAuth = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setSuccessMsg(null);
 
     try {
       let result;
       
       if (authMode === 'signup') {
-        // SIGN UP
+        // A. SIGN UP (WITH METADATA - Fixes Race Condition)
         result = await supabase.auth.signUp({
           email,
           password,
           options: {
             data: {
-              role: activeTab,
+              role: activeTab, // CRITICAL: Sets role immediately in session
               full_name: fullName,
-              startup_name: activeTab === "founder" ? startupName : null,
-            },
-          },
+              startup_name: activeTab === 'founder' ? startupName : null
+            }
+          }
         });
+
+        const { data, error: authError } = result;
+        if (authError) throw authError;
+
+        if (data.user) {
+            // B. MANUAL PROFILE UPSERT (The "Fix" for DB crash)
+            const { error: profileError } = await supabase.from('profiles').upsert({
+                id: data.user.id,
+                email: email,
+                role: activeTab,
+                full_name: fullName,
+                startup_name: activeTab === "founder" ? startupName : null
+            }, { onConflict: 'id' });
+
+            if (profileError) {
+                console.error("Profile Error:", profileError);
+                throw new Error("Identity created, but profile sync failed. Contact support.");
+            }
+        }
+
       } else {
-        // SIGN IN
+        // C. SIGN IN
         result = await supabase.auth.signInWithPassword({
           email,
           password,
@@ -91,22 +130,29 @@ export default function AuthPage() {
       if (authError) throw authError;
 
       if (data.user) {
-        // SMART REDIRECT
-        const userRole = data.user.user_metadata?.role;
+        // D. ROUTING (Prioritizes Metadata for immediate redirect)
+        const userRole = data.user.user_metadata?.role || activeTab;
+
         if (userRole === "founder") navigate("/founder/dashboard");
         else if (userRole === "buyer") navigate("/buyer/dashboard");
         else navigate("/");
       }
     } catch (err) {
-      setError(err.message);
+      console.error("Auth Error:", err);
+      let msg = err.message;
+      if (msg.includes("already registered")) msg = "Identity already exists. Please login.";
+      if (msg.includes("Database error")) msg = "System busy. Please try again.";
+      setError(msg);
     } finally {
       setLoading(false);
     }
   };
 
   const toggleMode = () => {
-    setAuthMode(prev => prev === 'login' ? 'signup' : 'login');
+    if (authMode === 'forgot') setAuthMode('login');
+    else setAuthMode(prev => prev === 'login' ? 'signup' : 'login');
     setError(null);
+    setSuccessMsg(null);
   };
 
   return (
@@ -126,19 +172,24 @@ export default function AuthPage() {
         <span className="text-xs font-bold uppercase tracking-widest hidden md:block">Return to Base</span>
       </button>
 
-      {/* 3. THE MONOLITH CARD (COMPACT VERSION) */}
+      {/* 3. THE MONOLITH CARD */}
       <div className="auth-card w-full max-w-[850px] min-h-[500px] bg-[#0A0A0A] border border-white/10 rounded-[1.5rem] overflow-hidden shadow-2xl flex flex-col md:flex-row relative z-10">
         
         {/* === LEFT PANEL: VISUAL CORTEX === */}
         <div className="relative w-full md:w-[45%] bg-[#0f0f0f] border-b md:border-b-0 md:border-r border-white/5 p-8 md:p-10 flex flex-col justify-between overflow-hidden group">
             
             {/* Dynamic Backgrounds */}
-            <div className={`absolute inset-0 transition-opacity duration-1000 ${authMode === 'signup' && activeTab === 'founder' ? 'opacity-100' : 'opacity-0'}`}>
+            <div className={`absolute inset-0 transition-opacity duration-1000 ${authMode !== 'forgot' && activeTab === 'founder' ? 'opacity-100' : 'opacity-0'}`}>
                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150%] h-[150%] bg-ethaum-green/5 rounded-full blur-[80px]"></div>
                <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
             </div>
-            <div className={`absolute inset-0 transition-opacity duration-1000 ${authMode === 'signup' && activeTab === 'buyer' ? 'opacity-100' : 'opacity-0'}`}>
+            <div className={`absolute inset-0 transition-opacity duration-1000 ${authMode !== 'forgot' && activeTab === 'buyer' ? 'opacity-100' : 'opacity-0'}`}>
                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150%] h-[150%] bg-blue-500/5 rounded-full blur-[80px]"></div>
+               <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
+            </div>
+             {/* Recovery Background */}
+             <div className={`absolute inset-0 transition-opacity duration-1000 ${authMode === 'forgot' ? 'opacity-100' : 'opacity-0'}`}>
+               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150%] h-[150%] bg-purple-500/5 rounded-full blur-[80px]"></div>
                <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
             </div>
 
@@ -155,6 +206,18 @@ export default function AuthPage() {
                         </h1>
                         <p className="text-gray-500 text-xs leading-relaxed max-w-xs border-l border-white/10 pl-4">
                             Access real-time deal flow, manage your vault, and track pilot performance metrics.
+                        </p>
+                    </div>
+                ) : authMode === 'forgot' ? (
+                    <div className="space-y-5">
+                        <div className="w-12 h-12 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center text-purple-400 shadow-[0_0_20px_rgba(168,85,247,0.1)]">
+                            <HelpCircle size={20} />
+                        </div>
+                        <h1 className="text-4xl font-light text-white leading-[0.9] tracking-tighter">
+                            Recovery <br/><span className="font-bold">Mode.</span>
+                        </h1>
+                        <p className="text-gray-500 text-xs leading-relaxed max-w-xs border-l border-white/10 pl-4">
+                            Initiate automated credential reset protocols. Secure link will be dispatched.
                         </p>
                     </div>
                 ) : (
@@ -206,7 +269,7 @@ export default function AuthPage() {
 
                 {/* Footer Decor */}
                 <div className="absolute bottom-0 left-0 text-[9px] text-gray-700 font-mono uppercase tracking-widest">
-                    System v2.4.0 :: {activeTab.toUpperCase()}
+                    System v2.4.0 :: {authMode === 'forgot' ? 'RECOVERY' : activeTab.toUpperCase()}
                 </div>
             </div>
         </div>
@@ -217,7 +280,7 @@ export default function AuthPage() {
             {/* Header */}
             <div className="form-element flex justify-between items-end mb-8 border-b border-white/5 pb-4">
                 <h2 className="text-xl font-bold text-white tracking-tight">
-                    {authMode === 'login' ? 'Identify.' : 'Register.'}
+                    {authMode === 'login' ? 'Identify.' : authMode === 'signup' ? 'Register.' : 'Recover.'}
                 </h2>
                 <button 
                     onClick={toggleMode}
@@ -230,15 +293,20 @@ export default function AuthPage() {
                 </button>
             </div>
 
-            {/* Error Display */}
+            {/* Feedback Display */}
             {error && (
-                <div className="form-element mb-6 p-3 bg-red-900/10 border-l-2 border-red-500 text-red-400 text-[10px] font-mono">
+                <div className="form-element mb-6 p-3 bg-red-900/10 border-l-2 border-red-500 text-red-400 text-[10px] font-mono animate-in fade-in slide-in-from-left-2">
                     ERROR :: {error}
+                </div>
+            )}
+            {successMsg && (
+                <div className="form-element mb-6 p-3 bg-green-900/10 border-l-2 border-green-500 text-green-400 text-[10px] font-mono animate-in fade-in slide-in-from-left-2">
+                    SUCCESS :: {successMsg}
                 </div>
             )}
 
             {/* Form */}
-            <form ref={formRef} onSubmit={handleAuth} className="flex flex-col gap-4">
+            <form ref={formRef} onSubmit={authMode === 'forgot' ? handleForgot : handleAuth} className="flex flex-col gap-4">
                 
                 {/* Full Name (Signup Only) */}
                 {authMode === 'signup' && (
@@ -255,7 +323,7 @@ export default function AuthPage() {
                     </div>
                 )}
 
-                {/* Email */}
+                {/* Email (Always Visible) */}
                 <div className="form-element group relative">
                     <Mail size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-600 group-focus-within:text-ethaum-green transition-colors" />
                     <input 
@@ -268,18 +336,33 @@ export default function AuthPage() {
                     />
                 </div>
 
-                {/* Password */}
-                <div className="form-element group relative">
-                    <Key size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-600 group-focus-within:text-ethaum-green transition-colors" />
-                    <input 
-                        required 
-                        type="password" 
-                        placeholder="Encrypted Key (Password)"
-                        value={password}
-                        onChange={e => setPassword(e.target.value)}
-                        className="w-full bg-[#111] border border-white/5 rounded-xl px-10 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-ethaum-green/50 focus:bg-white/5 transition-all"
-                    />
-                </div>
+                {/* Password (Login/Signup Only) */}
+                {authMode !== 'forgot' && (
+                    <div className="form-element group relative">
+                        <Key size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-600 group-focus-within:text-ethaum-green transition-colors" />
+                        <input 
+                            required 
+                            type="password" 
+                            placeholder="Encrypted Key (Password)"
+                            value={password}
+                            onChange={e => setPassword(e.target.value)}
+                            className="w-full bg-[#111] border border-white/5 rounded-xl px-10 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-ethaum-green/50 focus:bg-white/5 transition-all"
+                        />
+                    </div>
+                )}
+
+                {/* Forgot Password Link (Login Only) */}
+                {authMode === 'login' && (
+                    <div className="form-element flex justify-end">
+                        <button 
+                            type="button" 
+                            onClick={() => setAuthMode('forgot')}
+                            className="text-[9px] font-bold text-gray-500 hover:text-white uppercase tracking-wider transition-colors"
+                        >
+                            Forgot Password?
+                        </button>
+                    </div>
+                )}
 
                 {/* Startup Name (Founder Signup Only) */}
                 {authMode === 'signup' && activeTab === 'founder' && (
@@ -302,7 +385,10 @@ export default function AuthPage() {
                     className="form-element mt-6 w-full group relative overflow-hidden rounded-xl bg-white text-black font-black text-xs uppercase tracking-widest py-3.5 hover:bg-ethaum-green transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_30px_rgba(204,255,0,0.4)] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     <span className="relative z-10 flex items-center justify-center gap-3">
-                        {loading ? <Loader2 className="animate-spin" size={16} /> : (authMode === 'login' ? 'Authenticate' : 'Initiate Launch')}
+                        {loading ? <Loader2 className="animate-spin" size={16} /> : (
+                            authMode === 'login' ? 'Authenticate' : 
+                            authMode === 'signup' ? 'Initiate Launch' : 'Send Reset Link'
+                        )}
                         {!loading && <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />}
                     </span>
                 </button>

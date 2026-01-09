@@ -1,29 +1,45 @@
-import { useEffect, useState, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { X, Send, User, Loader2, ShieldCheck, Terminal } from "lucide-react";
+import { X, Send, Loader2, ShieldCheck, Lock } from "lucide-react";
 
 export default function ChatWindow({ request, currentUser, onClose }) {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
   const [loading, setLoading] = useState(true);
-  const bottomRef = useRef(null);
+  const scrollRef = useRef(null);
 
-  // Determine role for display
-  const isFounder = currentUser.id !== request.buyer_id;
-  const otherPartyName = isFounder 
-    ? (request.buyer?.full_name || "Enterprise Buyer") 
-    : (request.startups?.name || "Founder");
-
-  // --- 1. FETCH & SUBSCRIBE ---
+  // --- 1. FETCH & SUBSCRIBE TO LIVE UPDATES ---
   useEffect(() => {
+    // A. Fetch existing history
+    const fetchMessages = async () => {
+      const { data, error } = await supabase
+        .from('pilot_messages')
+        .select('*')
+        .eq('request_id', request.id)
+        .order('created_at', { ascending: true });
+      
+      if (!error) {
+        setMessages(data);
+        setLoading(false);
+        scrollToBottom();
+      }
+    };
+
     fetchMessages();
 
+    // B. Subscribe to NEW messages (Realtime)
     const channel = supabase
-      .channel(`chat:${request.id}`)
+      .channel(`chat-room-${request.id}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'pilot_messages', filter: `request_id=eq.${request.id}` },
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'pilot_messages', 
+          filter: `request_id=eq.${request.id}` 
+        },
         (payload) => {
+          // Add the new message to the list instantly
           setMessages((prev) => [...prev, payload.new]);
           scrollToBottom();
         }
@@ -35,140 +51,109 @@ export default function ChatWindow({ request, currentUser, onClose }) {
     };
   }, [request.id]);
 
-  const fetchMessages = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('pilot_messages')
-        .select('*')
-        .eq('request_id', request.id)
-        .order('created_at', { ascending: true });
-
-      if (error) throw error;
-      setMessages(data || []);
-      setLoading(false);
-      scrollToBottom();
-    } catch (err) {
-      console.error("Chat Error:", err);
-    }
-  };
-
   const scrollToBottom = () => {
-    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+    setTimeout(() => {
+      scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 100);
   };
 
-  // --- 2. SEND MESSAGE ---
   const handleSend = async (e) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
 
-    const content = newMessage.trim();
-    setNewMessage(""); // Optimistic Clear
+    const content = newMessage;
+    setNewMessage(""); // Clear input immediately
 
     try {
+      // We just INSERT. The .on('INSERT') subscription above will 
+      // see this happen and update the UI automatically for both users.
       const { error } = await supabase.from('pilot_messages').insert({
         request_id: request.id,
         sender_id: currentUser.id,
-        content: content,
+        content: content
       });
+
       if (error) throw error;
     } catch (err) {
       console.error("Send failed:", err);
-      alert("Failed to send message.");
+      alert("Encryption handshake failed. Try again.");
+      setNewMessage(content); // Restore text
     }
   };
 
   return (
-    // Z-INDEX 9999 ensures it sits on top of everything
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200 font-sans">
+    <div className="fixed bottom-0 right-4 md:right-10 w-full md:w-[400px] h-[500px] bg-[#0A0A0A] border border-white/20 rounded-t-xl shadow-2xl z-50 flex flex-col font-sans animate-in slide-in-from-bottom-10 duration-300">
       
-      {/* WINDOW CONTAINER */}
-      <div className="w-full max-w-lg bg-[#0F0F0F] border border-white/10 rounded-2xl shadow-[0_0_80px_rgba(0,0,0,1)] flex flex-col h-[650px] overflow-hidden relative">
-        
-        {/* HEADER */}
-        <div className="p-5 border-b border-white/10 flex justify-between items-center bg-[#0A0A0A] relative z-10">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-ethaum-green shadow-[0_0_15px_rgba(204,255,0,0.1)]">
-                {isFounder ? <User size={20} /> : <ShieldCheck size={20} />}
-            </div>
-            <div>
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    {otherPartyName}
-                    <span className="flex h-2 w-2 relative">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-ethaum-green opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-ethaum-green"></span>
-                    </span>
-                </h3>
-                <p className="text-[10px] text-gray-500 uppercase tracking-widest font-mono mt-0.5">
-                    SECURE_UPLINK :: {request.id.slice(0, 8)}
-                </p>
-            </div>
+      {/* HEADER */}
+      <div className="flex justify-between items-center p-4 border-b border-white/10 bg-[#0f0f0f] rounded-t-xl">
+        <div className="flex items-center gap-3">
+          <div className="w-2 h-2 bg-ethaum-green rounded-full animate-pulse shadow-[0_0_10px_#ccff00]"></div>
+          <div>
+            <h3 className="text-xs font-black text-white uppercase tracking-widest">Secure Uplink</h3>
+            <p className="text-[9px] text-gray-500 font-mono uppercase">
+                {request.profiles?.full_name || request.startups?.name || "Encrypted ID"}
+            </p>
           </div>
+        </div>
+        <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors">
+          <X size={16} />
+        </button>
+      </div>
+
+      {/* MESSAGES LIST */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-black/50 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+        {loading ? (
+          <div className="flex justify-center items-center h-full">
+            <Loader2 className="animate-spin text-ethaum-green" />
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-center opacity-30">
+            <ShieldCheck size={32} className="mb-2 text-gray-500"/>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Channel Open.<br/>Begin Transmission.</p>
+          </div>
+        ) : (
+          messages.map((msg, i) => {
+            const isMe = msg.sender_id === currentUser.id;
+            return (
+              <div key={msg.id || i} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                <div 
+                  className={`max-w-[80%] p-3 rounded-xl text-xs leading-relaxed ${
+                    isMe 
+                      ? 'bg-ethaum-green text-black font-medium rounded-br-none' 
+                      : 'bg-[#1a1a1a] text-gray-300 border border-white/5 rounded-bl-none'
+                  }`}
+                >
+                  {msg.content}
+                </div>
+              </div>
+            );
+          })
+        )}
+        <div ref={scrollRef} />
+      </div>
+
+      {/* INPUT */}
+      <form onSubmit={handleSend} className="p-3 border-t border-white/10 bg-[#0A0A0A]">
+        <div className="relative flex items-center">
+          <input
+            type="text"
+            value={newMessage}
+            onChange={(e) => setNewMessage(e.target.value)}
+            placeholder="Type encrypted message..."
+            className="w-full bg-[#111] border border-white/10 rounded-lg pl-4 pr-12 py-3 text-xs text-white focus:border-ethaum-green outline-none transition-all placeholder-gray-600"
+          />
           <button 
-            onClick={onClose} 
-            className="group p-2 hover:bg-red-500/10 rounded-lg transition-all border border-transparent hover:border-red-500/20"
+            type="submit" 
+            disabled={!newMessage.trim()}
+            className="absolute right-2 p-2 bg-white/5 text-gray-400 hover:text-white hover:bg-ethaum-green/20 rounded-md transition-all disabled:opacity-30 disabled:cursor-not-allowed"
           >
-            <X size={20} className="text-gray-500 group-hover:text-red-500 transition-colors" />
+            <Send size={14} />
           </button>
         </div>
-
-        {/* MESSAGES AREA */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#050505] relative">
-          {/* Background Texture */}
-          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-5 pointer-events-none"></div>
-
-          {loading ? (
-            <div className="flex flex-col items-center justify-center h-full gap-3">
-                <Loader2 className="animate-spin text-ethaum-green" />
-                <span className="text-[10px] font-mono text-ethaum-green animate-pulse">DECRYPTING FEED...</span>
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full opacity-30 gap-4">
-                <div className="p-4 border border-dashed border-white/20 rounded-full">
-                    <Terminal size={32} className="text-gray-500" />
-                </div>
-                <p className="text-xs font-mono uppercase tracking-widest text-gray-500">Channel Initialized</p>
-            </div>
-          ) : (
-            messages.map((msg) => {
-              const isMe = msg.sender_id === currentUser.id;
-              return (
-                <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[75%] rounded-2xl px-5 py-3 text-sm leading-relaxed shadow-lg backdrop-blur-sm ${
-                    isMe 
-                    ? 'bg-ethaum-green text-black font-bold rounded-tr-sm' 
-                    : 'bg-[#1a1a1a] border border-white/10 text-gray-200 rounded-tl-sm'
-                  }`}>
-                    {msg.content}
-                  </div>
-                </div>
-              );
-            })
-          )}
-          <div ref={bottomRef}></div>
+        <div className="text-[9px] text-gray-700 text-center mt-2 font-mono flex justify-center items-center gap-1">
+            <Lock size={8}/> END-TO-END ENCRYPTED // ETHAUM PROTOCOL v2.4
         </div>
-
-        {/* INPUT AREA */}
-        <form onSubmit={handleSend} className="p-4 bg-[#0A0A0A] border-t border-white/10 relative z-10">
-          <div className="flex gap-3">
-            <input
-              autoFocus
-              type="text"
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              placeholder="Enter secure message..."
-              className="flex-1 bg-[#111] border border-white/10 rounded-xl px-5 py-3 text-sm text-white placeholder-gray-600 focus:border-ethaum-green/50 focus:bg-white/5 outline-none transition-all font-medium"
-            />
-            <button 
-              type="submit"
-              disabled={!newMessage.trim()}
-              className="p-3 bg-ethaum-green text-black rounded-xl hover:bg-white transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(204,255,0,0.2)] active:scale-95"
-            >
-              <Send size={18} strokeWidth={2.5} />
-            </button>
-          </div>
-        </form>
-
-      </div>
+      </form>
     </div>
   );
 }

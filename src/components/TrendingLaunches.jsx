@@ -3,10 +3,10 @@ import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext"; 
 import { useNavigate } from "react-router-dom"; 
 import StackedSection from "./StackedSection";
-import { ChevronUp, Award, Loader2 } from "lucide-react";
+import { ChevronUp, Award, Loader2, Lock } from "lucide-react";
 
 export default function TrendingLaunches() {
-  const { user } = useAuth();
+  const { user, role } = useAuth(); // Contains { user, role: "founder" | "buyer" | null }
   const navigate = useNavigate();
   const [launches, setLaunches] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -19,28 +19,21 @@ export default function TrendingLaunches() {
 
   const fetchData = async () => {
     try {
-      // FIX: Fetch actual count of votes from the join table to avoid double-counting bugs
       const { data: startupData, error } = await supabase
         .from('startups')
-        .select(`
-            *,
-            startup_upvotes (count)
-        `)
+        .select(`*, startup_upvotes (count)`)
         .order('created_at', { ascending: false })
         .limit(3);
 
       if (error) throw error;
       
-      // Map the accurate count (Supabase returns { count: N } inside the array)
       const cleanedData = (startupData || []).map(s => ({
           ...s,
-          // If startup_upvotes exists and has count, use it. Fallback to existing column if needed.
           upvotes_count: s.startup_upvotes ? s.startup_upvotes[0]?.count : s.upvotes_count
       }));
 
       setLaunches(cleanedData);
 
-      // B. Fetch User Votes
       if (user) {
         const { data: votes, error: voteError } = await supabase
           .from('startup_upvotes')
@@ -66,16 +59,27 @@ export default function TrendingLaunches() {
   const handleUpvote = async (e, startupId, currentCount) => {
     e.stopPropagation();
 
+    // 1. LOGIN CHECK
     if (!user) {
       if (window.confirm("Sign in to upvote?")) navigate("/auth?type=buyer&mode=login");
       return;
     }
 
-    if (user.user_metadata?.role === 'founder') {
-        alert("Founders cannot upvote launches.");
+    // 2. ROLE CHECK (Robust)
+    // If role is null (loading) or 'founder', block it. Only explicit 'buyer' allowed? 
+    // Or just block founder.
+    if (role === 'founder' || role === 'Founder') {
+        alert("Action Restricted: Founders cannot upvote startups.");
         return;
     }
+    
+    // Safety for race conditions: if role is missing but user exists, assume restricted/loading
+    if (!role) {
+         console.warn("Role not loaded yet");
+         return; 
+    }
 
+    // 3. DUPLICATE CHECK
     if (votedIds.has(startupId)) return;
 
     // Optimistic Update
@@ -85,8 +89,6 @@ export default function TrendingLaunches() {
     setVotedIds(prev => new Set(prev).add(startupId));
 
     try {
-      // FIX: Only Insert. We rely on the DB (Trigger or Count Aggregation) for the number.
-      // Removed the RPC call to prevent double counting.
       const { error: voteError } = await supabase
         .from('startup_upvotes')
         .insert({ startup_id: startupId, user_id: user.id });
@@ -142,8 +144,20 @@ export default function TrendingLaunches() {
                                     </div>
                                 </div>
                             </div>
-                            <button onClick={(e) => handleUpvote(e, item.id, item.upvotes_count)} disabled={isVoted} className={`flex flex-col items-center justify-center w-12 h-12 border rounded-xl transition-all z-10 ${isVoted ? "bg-ethaum-green border-ethaum-green text-black cursor-default" : "bg-black border-white/10 hover:border-ethaum-green group-hover:text-ethaum-green active:scale-95"}`}>
-                                <ChevronUp size={20} />
+                            
+                            {/* LOCKED UPVOTE BUTTON FOR FOUNDERS */}
+                            <button 
+                                onClick={(e) => handleUpvote(e, item.id, item.upvotes_count)} 
+                                disabled={isVoted || role === 'founder'} 
+                                className={`flex flex-col items-center justify-center w-12 h-12 border rounded-xl transition-all z-10 
+                                    ${isVoted 
+                                        ? "bg-ethaum-green border-ethaum-green text-black cursor-default" 
+                                        : role === 'founder' 
+                                            ? "bg-white/5 border-white/5 text-gray-600 cursor-not-allowed opacity-50" 
+                                            : "bg-black border-white/10 hover:border-ethaum-green group-hover:text-ethaum-green active:scale-95"
+                                    }`}
+                            >
+                                {role === 'founder' ? <Lock size={14} /> : <ChevronUp size={20} />}
                                 <span className="text-[10px] font-bold">{item.upvotes_count || 0}</span>
                             </button>
                         </div>

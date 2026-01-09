@@ -2,11 +2,11 @@ import { useEffect, useState, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabaseClient";
 import Navbar from "../components/NavBar";
-import Loader from "../components/Loader";
+// REMOVED: import Loader from "../components/Loader";
 import ChatWindow from "../components/ChatWindow";
 import { 
   BarChart3, Search, Clock, CheckCircle2, XCircle, 
-  TrendingUp, MessageCircle, Zap, Sparkles 
+  TrendingUp, MessageCircle, Zap, Sparkles, Loader2 // ADDED Loader2
 } from "lucide-react";
 import gsap from "gsap";
 import { useNavigate } from "react-router-dom";
@@ -30,33 +30,16 @@ export default function BuyerDashboard() {
 
   const fetchBuyerData = async () => {
     try {
-      // 1. Fetch manually upvoted startups
-      const { data: watchData } = await supabase
-        .from('startup_upvotes')
-        .select(`startup_id, startups ( * )`)
-        .eq('user_id', user.id);
-      
+      const { data: watchData } = await supabase.from('startup_upvotes').select(`startup_id, startups ( * )`).eq('user_id', user.id);
       const upvoted = watchData?.map(item => item.startups).filter(Boolean) || [];
 
-      // 2. Fetch all pilot requests with startup details
-      const { data: reqData } = await supabase
-        .from('pilot_requests')
-        .select(`*, startups ( * )`)
-        .eq('buyer_id', user.id);
-      
+      const { data: reqData } = await supabase.from('pilot_requests').select(`*, startups ( * )`).eq('buyer_id', user.id);
       const allRequests = reqData || [];
       setRequests(allRequests);
 
-      // 3. Logic Fix: Extract startups from APPROVED requests
-      const approvedStartups = allRequests
-        .filter(r => r.status === 'approved' && r.startups)
-        .map(r => r.startups);
-      
-      // 4. Combine both lists and remove duplicates by ID
+      const approvedStartups = allRequests.filter(r => r.status === 'approved' && r.startups).map(r => r.startups);
       const combined = [...upvoted, ...approvedStartups];
-      const uniqueWatchlist = Array.from(
-        new Map(combined.map(item => [item.id, item])).values()
-      );
+      const uniqueWatchlist = Array.from(new Map(combined.map(item => [item.id, item])).values());
       
       setWatchlist(uniqueWatchlist);
     } catch (error) {
@@ -73,14 +56,9 @@ export default function BuyerDashboard() {
     
     const term = searchTerm.toLowerCase();
     if (activeTab === 'watchlist') {
-      setWatchlist(prev => prev.filter(s => 
-        s.name.toLowerCase().includes(term) || 
-        s.tagline?.toLowerCase().includes(term)
-      ));
+      setWatchlist(prev => prev.filter(s => s.name.toLowerCase().includes(term) || s.tagline?.toLowerCase().includes(term)));
     } else {
-      setRequests(prev => prev.filter(r => 
-        r.startups?.name?.toLowerCase().includes(term)
-      ));
+      setRequests(prev => prev.filter(r => r.startups?.name?.toLowerCase().includes(term)));
     }
     setIsSearching(false);
   };
@@ -91,7 +69,12 @@ export default function BuyerDashboard() {
     }
   }, [loading, activeTab]);
 
-  if (loading) return <Loader />;
+  // --- REPLACED LOADER WITH SIMPLE SPINNER ---
+  if (loading) return (
+    <div className="min-h-screen bg-black flex items-center justify-center">
+        <Loader2 className="animate-spin text-ethaum-green" size={40} />
+    </div>
+  );
 
   return (
     <>
@@ -162,7 +145,7 @@ export default function BuyerDashboard() {
                     </div>
                 )) : (
                   <div className="col-span-full py-20 text-center border border-dashed border-white/10 rounded-xl opacity-30">
-                     <span className="text-[10px] font-bold uppercase tracking-widest">Vault Empty</span>
+                      <span className="text-[10px] font-bold uppercase tracking-widest">Vault Empty</span>
                   </div>
                 )}
             </div>
@@ -199,7 +182,7 @@ export default function BuyerDashboard() {
                     </div>
                 )) : (
                   <div className="py-20 text-center border border-dashed border-white/10 rounded-xl opacity-30">
-                     <span className="text-[10px] font-bold uppercase tracking-widest">No Active Pilots</span>
+                      <span className="text-[10px] font-bold uppercase tracking-widest">No Active Pilots</span>
                   </div>
                 )}
             </div>
