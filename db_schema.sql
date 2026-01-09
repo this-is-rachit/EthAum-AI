@@ -1,39 +1,17 @@
 -- ==============================================================================
 -- ETHAUM.AI DATABASE SCHEMA & CONFIGURATION
--- VERSION: 1.0 (Stable Production Build)
+-- VERSION: 2.0 (Secure Vault + AI Vector Search Enabled)
 -- 
--- INSTRUCTIONS FOR DEVELOPERS:
+-- INSTRUCTIONS:
 -- 1. Create a new Supabase Project.
--- 2. Go to the SQL Editor.
--- 3. Paste this entire script and click "RUN".
+-- 2. Go to SQL Editor -> Paste this script -> Run.
 -- ==============================================================================
 
 -- ------------------------------------------------------------------------------
--- 1. CLEANUP (Ensures a fresh start if re-running)
+-- 1. EXTENSIONS & SETUP
 -- ------------------------------------------------------------------------------
-BEGIN;
-
--- Disable RLS to allow dropping
-ALTER TABLE IF EXISTS public.profiles DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.startups DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.pilot_requests DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.pilot_messages DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.startup_upvotes DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.reviews DISABLE ROW LEVEL SECURITY;
-
--- Drop Tables (Cascade handles dependencies)
-DROP TABLE IF EXISTS public.pilot_messages CASCADE;
-DROP TABLE IF EXISTS public.pilot_requests CASCADE;
-DROP TABLE IF EXISTS public.reviews CASCADE;
-DROP TABLE IF EXISTS public.startup_upvotes CASCADE;
-DROP TABLE IF EXISTS public.startups CASCADE;
-DROP TABLE IF EXISTS public.profiles CASCADE;
-
--- Note: We do NOT wipe auth.users here to avoid breaking the developer's 
--- local Supabase instance if they have other projects, but in a fresh project,
--- this is fine.
-
-COMMIT;
+-- Enable Vector extension for AI Semantic Search
+CREATE EXTENSION IF NOT EXISTS vector;
 
 -- ------------------------------------------------------------------------------
 -- 2. TABLE DEFINITIONS
@@ -49,7 +27,7 @@ CREATE TABLE public.profiles (
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- STARTUPS
+-- STARTUPS (Includes Vector Embedding)
 CREATE TABLE public.startups (
   id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   founder_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -63,7 +41,7 @@ CREATE TABLE public.startups (
   deal_offer text,
   deal_expiry date,
   vault_ready boolean DEFAULT false,
-  -- Asset Links
+  -- Secure Assets (Stores Paths, not Public URLs)
   pitch_deck_url text,
   technical_docs_url text,
   financials_url text,
@@ -72,10 +50,10 @@ CREATE TABLE public.startups (
   -- Metrics
   upvotes_count integer DEFAULT 0,
   eth_aum_score integer DEFAULT 0,
-  -- Vector Embedding (Optional placeholder)
-  description_embedding text, 
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+  -- AI Vector Column (1536 dimensions for OpenAI text-embedding-3-small)
+  description_embedding vector(1536)
 );
 
 -- PILOT REQUESTS
@@ -117,29 +95,16 @@ CREATE TABLE public.reviews (
 );
 
 -- ------------------------------------------------------------------------------
--- 3. STORAGE BUCKET SETUP (Vault Assets)
+-- 3. STORAGE SETUP (SECURE VAULT)
 -- ------------------------------------------------------------------------------
--- Create the bucket for PDFs if it doesn't exist
+-- Create PRIVATE bucket (Public = False)
 INSERT INTO storage.buckets (id, name, public)
-VALUES ('vault-assets', 'vault-assets', true)
-ON CONFLICT (id) DO NOTHING;
+VALUES ('vault-assets', 'vault-assets', false)
+ON CONFLICT (id) DO UPDATE SET public = false;
 
 -- ------------------------------------------------------------------------------
--- 4. REALTIME SETUP (Crucial for Chat)
+-- 4. ROW LEVEL SECURITY (RLS)
 -- ------------------------------------------------------------------------------
-DO $$
-BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE pilot_messages;
-EXCEPTION
-    WHEN duplicate_object THEN NULL;
-    WHEN OTHERS THEN NULL;
-END $$;
-
--- ------------------------------------------------------------------------------
--- 5. SECURITY POLICIES (RLS) - The "Deadlock-Free" Logic
--- ------------------------------------------------------------------------------
-
--- Enable RLS on all tables
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.startups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pilot_requests ENABLE ROW LEVEL SECURITY;
@@ -147,30 +112,27 @@ ALTER TABLE public.pilot_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.startup_upvotes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
 
--- 5.1 PROFILES
+-- Profiles Policies
 CREATE POLICY "Public_Read_Profiles" ON public.profiles FOR SELECT USING (true);
-CREATE POLICY "Self_Insert_Profiles" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
 CREATE POLICY "Self_Update_Profiles" ON public.profiles FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "Self_Insert_Profiles" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
 
--- 5.2 STARTUPS
+-- Startups Policies
 CREATE POLICY "Public_Read_Startups" ON public.startups FOR SELECT USING (true);
 CREATE POLICY "Founder_Manage_Startup" ON public.startups FOR ALL USING (auth.uid() = founder_id);
+CREATE POLICY "Founder_Insert_Startup" ON public.startups FOR INSERT WITH CHECK (auth.uid() = founder_id);
 
--- 5.3 PILOT REQUESTS
--- Buyers create requests
+-- Requests Policies
 CREATE POLICY "Buyer_Create_Req" ON public.pilot_requests FOR INSERT WITH CHECK (auth.uid() = buyer_id);
--- Combined View: Buyers see own, Founders see requests for their startups
 CREATE POLICY "View_Relevant_Req" ON public.pilot_requests FOR SELECT USING (
-    auth.uid() = buyer_id 
-    OR 
+    auth.uid() = buyer_id OR 
     EXISTS (SELECT 1 FROM public.startups WHERE id = startup_id AND founder_id = auth.uid())
 );
--- Founders accept/reject
 CREATE POLICY "Founder_Update_Req" ON public.pilot_requests FOR UPDATE USING (
     EXISTS (SELECT 1 FROM public.startups WHERE id = startup_id AND founder_id = auth.uid())
 );
 
--- 5.4 PILOT MESSAGES
+-- Messages Policies
 CREATE POLICY "User_Send_Msg" ON public.pilot_messages FOR INSERT WITH CHECK (auth.uid() = sender_id);
 CREATE POLICY "User_View_Msg" ON public.pilot_messages FOR SELECT USING (
     auth.uid() = sender_id OR 
@@ -184,34 +146,75 @@ CREATE POLICY "User_View_Msg" ON public.pilot_messages FOR SELECT USING (
     )
 );
 
--- 5.5 UPVOTES & REVIEWS
+-- Upvotes/Reviews Policies
 CREATE POLICY "Public_Read_Votes" ON public.startup_upvotes FOR SELECT USING (true);
 CREATE POLICY "User_Vote" ON public.startup_upvotes FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "User_Unvote" ON public.startup_upvotes FOR DELETE USING (auth.uid() = user_id);
-
 CREATE POLICY "Public_Read_Reviews" ON public.reviews FOR SELECT USING (true);
 CREATE POLICY "User_Review" ON public.reviews FOR INSERT WITH CHECK (auth.uid() = reviewer_id);
 
 -- ------------------------------------------------------------------------------
--- 6. STORAGE POLICIES (RLS for Files)
+-- 5. STORAGE POLICIES (VAULT SECURITY)
 -- ------------------------------------------------------------------------------
--- Allow public read (download) of assets
-CREATE POLICY "Public Access Vault" ON storage.objects FOR SELECT
-USING ( bucket_id = 'vault-assets' );
+-- A. Founders Manage Own Assets
+CREATE POLICY "Founder Manage Own Assets" ON storage.objects
+FOR ALL
+USING ( bucket_id = 'vault-assets' AND auth.uid()::text = (storage.foldername(name))[1] )
+WITH CHECK ( bucket_id = 'vault-assets' AND auth.uid()::text = (storage.foldername(name))[1] );
 
--- Allow authenticated users (Founders) to upload
-CREATE POLICY "Auth Upload Vault" ON storage.objects FOR INSERT 
-WITH CHECK ( bucket_id = 'vault-assets' AND auth.role() = 'authenticated' );
-
--- Allow users to update/delete their own files
-CREATE POLICY "Owner Manage Vault" ON storage.objects FOR ALL
+-- B. Founders Read Own Assets
+CREATE POLICY "Founder Read Own Assets" ON storage.objects
+FOR SELECT
 USING ( bucket_id = 'vault-assets' AND auth.uid()::text = (storage.foldername(name))[1] );
 
+-- C. Buyers Read Approved Assets Only
+CREATE POLICY "Buyer Read Approved Assets" ON storage.objects
+FOR SELECT
+USING (
+    bucket_id = 'vault-assets'
+    AND EXISTS (
+        SELECT 1 FROM public.pilot_requests pr
+        JOIN public.startups s ON pr.startup_id = s.id
+        WHERE 
+            pr.buyer_id = auth.uid()
+            AND pr.status = 'approved'
+            AND s.founder_id::text = (storage.foldername(name))[1]
+    )
+);
+
 -- ------------------------------------------------------------------------------
--- 7. FINAL PERMISSIONS
+-- 6. AI SEMANTIC SEARCH FUNCTION
 -- ------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION match_startups (
+  query_embedding vector(1536),
+  match_threshold float,
+  match_count int
+)
+RETURNS setof startups
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT *
+  FROM startups
+  WHERE 1 - (description_embedding <=> query_embedding) > match_threshold
+  ORDER BY description_embedding <=> query_embedding
+  LIMIT match_count;
+END;
+$$;
+
+-- ------------------------------------------------------------------------------
+-- 7. REALTIME & PERMISSIONS
+-- ------------------------------------------------------------------------------
+DO $$
+BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE pilot_messages;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
+
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION match_startups(vector, double precision, integer) TO authenticated;
+GRANT EXECUTE ON FUNCTION match_startups(vector, double precision, integer) TO anon;
 
--- End of Script
+-- END OF SCRIPT

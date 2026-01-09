@@ -2,14 +2,14 @@ import { useEffect, useState, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabaseClient";
 import Navbar from "../components/NavBar";
-// REMOVED: import Loader from "../components/Loader";
 import ChatWindow from "../components/ChatWindow";
 import { 
   BarChart3, Search, Clock, CheckCircle2, XCircle, 
-  TrendingUp, MessageCircle, Zap, Sparkles, Loader2 // ADDED Loader2
+  TrendingUp, MessageCircle, Zap, Sparkles, Loader2 
 } from "lucide-react";
 import gsap from "gsap";
 import { useNavigate } from "react-router-dom";
+import { generateEmbedding } from "../lib/openai"; // Import the embedding generator
 
 export default function BuyerDashboard() {
   const { user } = useAuth();
@@ -49,18 +49,53 @@ export default function BuyerDashboard() {
     }
   };
 
-  const handleSemanticSearch = (e) => {
+  // NEW: Semantic Search Logic (Updated with Debugging)
+  const handleSemanticSearch = async (e) => {
     e.preventDefault();
     if (!searchTerm) { fetchBuyerData(); return; }
+    
     setIsSearching(true);
     
-    const term = searchTerm.toLowerCase();
-    if (activeTab === 'watchlist') {
-      setWatchlist(prev => prev.filter(s => s.name.toLowerCase().includes(term) || s.tagline?.toLowerCase().includes(term)));
-    } else {
-      setRequests(prev => prev.filter(r => r.startups?.name?.toLowerCase().includes(term)));
+    try {
+        console.log("Generating vector for:", searchTerm);
+        // 1. Convert Search Query to Vector
+        const vector = await generateEmbedding(searchTerm);
+        
+        if (!vector) throw new Error("Failed to vectorize query");
+        console.log("Vector generated successfully. Length:", vector.length);
+
+        // 2. Call the Database RPC function
+        // CRITICAL UPDATE: Lowered match_threshold to 0.01 to ensure results appear during testing
+        const { data: results, error } = await supabase.rpc('match_startups', {
+            query_embedding: vector,
+            match_threshold: 0.2, // Lowered for testing!
+            match_count: 10
+        });
+
+        if (error) {
+            console.error("Supabase RPC Error:", error);
+            throw error;
+        }
+
+        console.log("Search Results:", results);
+
+        // 3. Update UI
+        if (activeTab === 'watchlist') {
+            setWatchlist(results || []);
+        } else {
+            // For pilots, filter existing requests that match the found startup IDs
+            const resultIds = results.map(r => r.id);
+            setRequests(prev => prev.filter(req => resultIds.includes(req.startup_id)));
+        }
+
+    } catch (err) {
+        console.error("Search Logic Error:", err);
+        // Fallback to basic text search if AI fails
+        const term = searchTerm.toLowerCase();
+        setWatchlist(prev => prev.filter(s => s.name.toLowerCase().includes(term)));
+    } finally {
+        setIsSearching(false);
     }
-    setIsSearching(false);
   };
 
   useEffect(() => {
@@ -69,7 +104,6 @@ export default function BuyerDashboard() {
     }
   }, [loading, activeTab]);
 
-  // --- REPLACED LOADER WITH SIMPLE SPINNER ---
   if (loading) return (
     <div className="min-h-screen bg-black flex items-center justify-center">
         <Loader2 className="animate-spin text-ethaum-green" size={40} />
@@ -145,7 +179,7 @@ export default function BuyerDashboard() {
                     </div>
                 )) : (
                   <div className="col-span-full py-20 text-center border border-dashed border-white/10 rounded-xl opacity-30">
-                      <span className="text-[10px] font-bold uppercase tracking-widest">Vault Empty</span>
+                      <span className="text-[10px] font-bold uppercase tracking-widest">Vault Empty (or No Match Found)</span>
                   </div>
                 )}
             </div>

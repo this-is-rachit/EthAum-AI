@@ -1,10 +1,13 @@
 import OpenAI from "openai";
 
+// Initialize OpenAI Client (Direct Browser Access)
+// NOTE: This uses the key from your .env file
 const openai = new OpenAI({
   apiKey: import.meta.env.VITE_OPENAI_API_KEY,
   dangerouslyAllowBrowser: true, 
 });
 
+// 1. Generate Launch Assets (Tagline, Offer, Description)
 export const generateLaunchAssets = async (description, websiteUrl = "") => {
   if (!description) return null;
 
@@ -32,9 +35,8 @@ export const generateLaunchAssets = async (description, websiteUrl = "") => {
     try {
         return JSON.parse(content);
     } catch (e) {
-        // Fallback if AI doesn't return strict JSON
         return { 
-            tagline: "AI Analysis Failed - Manual Input Required", 
+            tagline: "AI Analysis Failed", 
             offer: "Standard Pilot Access",
             elaborated_description: description 
         };
@@ -42,5 +44,21 @@ export const generateLaunchAssets = async (description, websiteUrl = "") => {
   } catch (error) {
     console.error("OpenAI Error:", error);
     throw error;
+  }
+};
+
+// 2. Generate Vector Embeddings (For Search)
+export const generateEmbedding = async (text) => {
+  if (!text) return null;
+  
+  try {
+    const response = await openai.embeddings.create({
+      model: "text-embedding-3-small", // Must match the 1536 dimensions in DB
+      input: text.replace(/\n/g, ' '),
+    });
+    return response.data[0].embedding;
+  } catch (error) {
+    console.error("Embedding Error:", error);
+    return null;
   }
 };

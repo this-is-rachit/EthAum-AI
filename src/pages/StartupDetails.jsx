@@ -3,12 +3,11 @@ import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../context/AuthContext";
 import Navbar from "../components/NavBar";
-// REMOVED: import Loader from "../components/Loader";
 import VaultDoor from "../components/VaultDoor";
 import { 
-  ArrowLeft, Globe, ShieldCheck, Zap, Layers, 
+  ArrowLeft, Globe, ShieldCheck, Zap, 
   Lock, FileText, ArrowUpRight, 
-  Cpu, Star, Clock, AlertCircle, Loader2 // ADDED Loader2
+  Cpu, Star, AlertCircle, Loader2 
 } from "lucide-react";
 import gsap from "gsap";
 
@@ -21,6 +20,10 @@ export default function StartupDetails() {
   const [reviews, setReviews] = useState([]);
   const [requestStatus, setRequestStatus] = useState(null); 
   const [showLoader, setShowLoader] = useState(true);
+  
+  // NEW: State to hold secure, temporary links
+  const [signedUrls, setSignedUrls] = useState({});
+  
   const containerRef = useRef(null);
 
   useEffect(() => {
@@ -68,6 +71,41 @@ export default function StartupDetails() {
     loadData();
   }, [id, navigate, user, role]);
 
+  // NEW: Effect to generate Signed URLs only when approved
+  useEffect(() => {
+    const generateLinks = async () => {
+      // Security Check: Do nothing if not approved or no startup data
+      if (requestStatus !== 'approved' || !startup) return;
+
+      // Map friendly names to the DB paths
+      const assets = {
+        'Pitch_Deck.pdf': startup.pitch_deck_url,
+        'Technical_Docs.pdf': startup.technical_docs_url,
+        'Financial_Model.pdf': startup.financials_url,
+        'Compliance_Log.pdf': startup.compliance_url
+      };
+
+      const urls = {};
+      
+      for (const [name, path] of Object.entries(assets)) {
+        if (path) {
+          // Generate a link valid for 1 hour (3600 seconds)
+          // This ensures the link expires even if shared
+          const { data } = await supabase.storage
+            .from('vault-assets') // Must match the PRIVATE bucket name
+            .createSignedUrl(path, 3600);
+            
+          if (data?.signedUrl) {
+            urls[name] = data.signedUrl;
+          }
+        }
+      }
+      setSignedUrls(urls);
+    };
+
+    generateLinks();
+  }, [startup, requestStatus]);
+
   useEffect(() => {
     if (!showLoader && startup) {
       gsap.fromTo(".fade-in", { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.4, stagger: 0.05 });
@@ -91,7 +129,6 @@ export default function StartupDetails() {
     } catch (err) { alert("Failed to send request."); }
   };
 
-  // --- REPLACED LOADER WITH SIMPLE SPINNER ---
   if (showLoader) return (
     <div className="min-h-screen bg-black flex items-center justify-center">
         <Loader2 className="animate-spin text-ethaum-green" size={40} />
@@ -178,21 +215,23 @@ export default function StartupDetails() {
                         {requestStatus === 'approved' ? (
                           <div className="w-full h-full flex flex-col items-center justify-center p-8 bg-black/40 backdrop-blur-sm">
                               <h2 className="text-xs font-bold text-ethaum-green uppercase tracking-[0.3em] mb-6">Secured Artifacts Unlocked</h2>
+                              {/* UPDATED: Iterate over generate signedUrls */}
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full max-w-lg">
-                                  {[
-                                      { name: 'Pitch_Deck.pdf', url: startup.pitch_deck_url },
-                                      { name: 'Technical_Docs', url: startup.technical_docs_url },
-                                      { name: 'Financial_Model', url: startup.financials_url },
-                                      { name: 'Compliance_Log', url: startup.compliance_url }
-                                  ].map(doc => doc.url && (
-                                    <a key={doc.name} href={doc.url} target="_blank" rel="noreferrer" className="p-3 bg-white/5 border border-white/10 rounded flex items-center justify-between hover:bg-ethaum-green hover:text-black transition-all group">
-                                        <div className="flex items-center gap-3">
-                                          <FileText size={14}/>
-                                          <span className="text-[9px] font-bold uppercase tracking-widest">{doc.name}</span>
-                                        </div>
-                                        <ArrowUpRight size={12} />
-                                    </a>
-                                  ))}
+                                  {Object.entries(signedUrls).length > 0 ? (
+                                    Object.entries(signedUrls).map(([name, url]) => (
+                                      <a key={name} href={url} target="_blank" rel="noreferrer" className="p-3 bg-white/5 border border-white/10 rounded flex items-center justify-between hover:bg-ethaum-green hover:text-black transition-all group">
+                                          <div className="flex items-center gap-3">
+                                            <FileText size={14}/>
+                                            <span className="text-[9px] font-bold uppercase tracking-widest">{name}</span>
+                                          </div>
+                                          <ArrowUpRight size={12} />
+                                      </a>
+                                    ))
+                                  ) : (
+                                    <div className="col-span-2 text-center text-gray-500 text-[10px] uppercase">
+                                        No Assets Found
+                                    </div>
+                                  )}
                               </div>
                           </div>
                         ) : (
